@@ -1,5 +1,7 @@
 project('gpop', 'c', version : '1.0.0', license : 'LGPL')
 
+pkg = import('pkgconfig')
+
 cc = meson.get_compiler('c')
 
 # Dependencies

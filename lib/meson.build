@@ -25,3 +25,8 @@ libgpop_dep = declare_dependency(
   include_directories: include_directories('src'),
   link_with: libgpop,
 )
+
+pkg.generate(name: 'gpop',
+             description: 'Gstreamer Prince Of Parser Library',
+             version: meson.project_version(),
+             libraries: libgpop)
