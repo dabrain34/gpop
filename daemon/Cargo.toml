@@ -1,0 +1,48 @@
+[package]
+name = "gpop-daemon"
+version = "1.0.0"
+edition = "2021"
+authors = ["Stéphane Cerveau"]
+license = "GPL-3.0-or-later"
+description = "GStreamer Prince of Parser - Pipeline management daemon with DBus and WebSocket interfaces"
+repository = "https://github.com/user/gpop"
+
+[dependencies]
+# GStreamer bindings
+gstreamer = "0.23"
+
+# Async runtime
+tokio = { version = "1", features = ["full", "signal"] }
+
+# WebSocket
+tokio-tungstenite = "0.26"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Utilities
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+
+# DBus (Linux only)
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+[lib]
+name = "gpop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gpop-daemon"
+path = "src/main.rs"
+
+[[example]]
+name = "ws_client"
+path = "examples/ws_client.rs"
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }

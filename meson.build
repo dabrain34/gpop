@@ -1,4 +1,4 @@
-project('gpop', 'c', version : '1.0.0', license : 'LGPL')
+project('gpop', 'c', version : '1.0.0', license : 'GPL')
 
 pkg = import('pkgconfig')
 
@@ -23,4 +23,21 @@ gst_dep = dependency('gstreamer-1.0', version: gst_req_version,
 root_inc = include_directories('.')
 
 subdir('lib')
-subdir('daemon')
+subdir('client/c')
+
+# Rust targets (daemon + client)
+cargo = find_program('cargo', required: true)
+
+custom_target('gpop-daemon',
+  output: 'gpop-daemon',
+  command: [cargo, 'build', '--release', '-p', 'gpop-daemon', '--target-dir', '@OUTDIR@'],
+  console: true,
+  build_by_default: true,
+)
+
+custom_target('gpop-client',
+  output: 'gpop-client',
+  command: [cargo, 'build', '--release', '-p', 'gpop-client', '--target-dir', '@OUTDIR@'],
+  console: true,
+  build_by_default: true,
+)
