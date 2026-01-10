@@ -1,2 +1,6 @@
 *.o
 build*
+
+# Rust
+gpop-rs/target/
+target/

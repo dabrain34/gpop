@@ -1,0 +1,202 @@
+// protocol_tests.rs
+//
+// Copyright 2026 Stéphane Cerveau <scerveau@igalia.com>
+//
+// This file is part of GstPrinceOfParser
+//
+// SPDX-License-Identifier: GPL-3.0-only
+
+use super::pipeline::*;
+use super::protocol::*;
+use crate::gst::PipelineState;
+
+#[test]
+fn test_request_deserialize() {
+    let json = r#"{"id":"123","method":"list_pipelines","params":{}}"#;
+    let request: Request = serde_json::from_str(json).unwrap();
+
+    assert_eq!(request.id, "123");
+    assert_eq!(request.method, "list_pipelines");
+}
+
+#[test]
+fn test_request_deserialize_with_params() {
+    let json = r#"{"id":"456","method":"create_pipeline","params":{"description":"videotestsrc ! fakesink"}}"#;
+    let request: Request = serde_json::from_str(json).unwrap();
+
+    assert_eq!(request.id, "456");
+    assert_eq!(request.method, "create_pipeline");
+
+    let params: CreatePipelineParams = serde_json::from_value(request.params).unwrap();
+    assert_eq!(params.description, "videotestsrc ! fakesink");
+}
+
+#[test]
+fn test_request_deserialize_optional_params() {
+    let json = r#"{"id":"789","method":"list_pipelines"}"#;
+    let request: Request = serde_json::from_str(json).unwrap();
+
+    assert_eq!(request.id, "789");
+    assert_eq!(request.method, "list_pipelines");
+    assert!(request.params.is_null());
+}
+
+#[test]
+fn test_response_success() {
+    let response = Response::success(
+        "123".to_string(),
+        serde_json::json!({"pipeline_id": "pipeline-0"}),
+    );
+
+    assert_eq!(response.id, "123");
+    assert!(response.result.is_some());
+    assert!(response.error.is_none());
+
+    let json = serde_json::to_string(&response).unwrap();
+    assert!(json.contains("\"pipeline_id\":\"pipeline-0\""));
+    assert!(!json.contains("\"error\""));
+}
+
+#[test]
+fn test_response_error() {
+    let response = Response::error("123".to_string(), -32600, "Invalid request".to_string());
+
+    assert_eq!(response.id, "123");
+    assert!(response.result.is_none());
+    assert!(response.error.is_some());
+
+    let error = response.error.unwrap();
+    assert_eq!(error.code, -32600);
+    assert_eq!(error.message, "Invalid request");
+}
+
+#[test]
+fn test_response_serialization_skips_none() {
+    let success = Response::success("1".to_string(), serde_json::json!({}));
+    let json = serde_json::to_string(&success).unwrap();
+    assert!(!json.contains("\"error\""));
+
+    let error = Response::error(
+        "2".to_string(),
+        error_codes::INTERNAL_ERROR,
+        "Error".to_string(),
+    );
+    let json = serde_json::to_string(&error).unwrap();
+    assert!(!json.contains("\"result\""));
+}
+
+#[test]
+fn test_create_pipeline_params() {
+    let json = r#"{"description":"videotestsrc ! fakesink"}"#;
+    let params: CreatePipelineParams = serde_json::from_str(json).unwrap();
+    assert_eq!(params.description, "videotestsrc ! fakesink");
+}
+
+#[test]
+fn test_pipeline_id_params() {
+    let json = r#"{"pipeline_id":"pipeline-0"}"#;
+    let params: PipelineIdParams = serde_json::from_str(json).unwrap();
+    assert_eq!(params.pipeline_id, "pipeline-0");
+}
+
+#[test]
+fn test_set_state_params() {
+    let json = r#"{"pipeline_id":"pipeline-0","state":"playing"}"#;
+    let params: SetStateParams = serde_json::from_str(json).unwrap();
+    assert_eq!(params.pipeline_id, "pipeline-0");
+    assert_eq!(params.state, "playing");
+}
+
+#[test]
+fn test_snapshot_params_with_details() {
+    let json = r#"{"pipeline_id":"0","details":"all"}"#;
+    let params: SnapshotParams = serde_json::from_str(json).unwrap();
+    assert_eq!(params.pipeline_id, Some("0".to_string()));
+    assert_eq!(params.details, Some("all".to_string()));
+}
+
+#[test]
+fn test_snapshot_params_without_details() {
+    let json = r#"{"pipeline_id":"0"}"#;
+    let params: SnapshotParams = serde_json::from_str(json).unwrap();
+    assert_eq!(params.pipeline_id, Some("0".to_string()));
+    assert!(params.details.is_none());
+}
+
+#[test]
+fn test_snapshot_params_empty() {
+    let json = r#"{}"#;
+    let params: SnapshotParams = serde_json::from_str(json).unwrap();
+    assert!(params.pipeline_id.is_none());
+    assert!(params.details.is_none());
+}
+
+#[test]
+fn test_pipeline_info_result() {
+    let result = PipelineInfoResult {
+        id: "pipeline-0".to_string(),
+        description: "videotestsrc ! fakesink".to_string(),
+        state: PipelineState::Playing,
+        streaming: true,
+    };
+
+    let json = serde_json::to_string(&result).unwrap();
+    assert!(json.contains("\"id\":\"pipeline-0\""));
+    assert!(json.contains("\"state\":\"playing\""));
+    assert!(json.contains("\"streaming\":true"));
+}
+
+#[test]
+fn test_list_pipelines_result() {
+    let result = ListPipelinesResult {
+        pipelines: vec![
+            PipelineInfoResult {
+                id: "pipeline-0".to_string(),
+                description: "test1".to_string(),
+                state: PipelineState::Null,
+                streaming: false,
+            },
+            PipelineInfoResult {
+                id: "pipeline-1".to_string(),
+                description: "test2".to_string(),
+                state: PipelineState::Playing,
+                streaming: true,
+            },
+        ],
+    };
+
+    let json = serde_json::to_string(&result).unwrap();
+    assert!(json.contains("\"pipelines\":["));
+    assert!(json.contains("\"pipeline-0\""));
+    assert!(json.contains("\"pipeline-1\""));
+}
+
+#[test]
+fn test_success_result() {
+    let result = SuccessResult { success: true };
+    let json = serde_json::to_string(&result).unwrap();
+    assert_eq!(json, r#"{"success":true}"#);
+}
+
+#[test]
+fn test_snapshot_result() {
+    let result = SnapshotResult {
+        response_type: "SnapshotResponse".to_string(),
+        pipelines: vec![PipelineSnapshot {
+            id: "0".to_string(),
+            dot: "digraph pipeline {}".to_string(),
+        }],
+    };
+    let json = serde_json::to_string(&result).unwrap();
+    assert!(json.contains("digraph pipeline"));
+    assert!(json.contains("\"type\":\"SnapshotResponse\""));
+}
+
+#[test]
+fn test_pipeline_created_result() {
+    let result = PipelineCreatedResult {
+        pipeline_id: "pipeline-0".to_string(),
+    };
+    let json = serde_json::to_string(&result).unwrap();
+    assert_eq!(json, r#"{"pipeline_id":"pipeline-0"}"#);
+}
