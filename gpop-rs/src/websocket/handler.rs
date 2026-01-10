@@ -1,0 +1,197 @@
+use std::sync::Arc;
+use tracing::debug;
+
+use crate::event::PipelineState;
+use crate::pipeline::PipelineManager;
+
+use super::protocol::*;
+
+pub struct MessageHandler {
+    manager: Arc<PipelineManager>,
+}
+
+impl MessageHandler {
+    pub fn new(manager: Arc<PipelineManager>) -> Self {
+        Self { manager }
+    }
+
+    pub async fn handle(&self, request: Request) -> Response {
+        debug!("Handling request: {} (id: {})", request.method, request.id);
+
+        match request.method.as_str() {
+            "list_pipelines" => self.list_pipelines(request.id).await,
+            "create_pipeline" => self.create_pipeline(request).await,
+            "remove_pipeline" => self.remove_pipeline(request).await,
+            "get_pipeline" => self.get_pipeline(request).await,
+            "set_state" => self.set_state(request).await,
+            "play" => self.play(request).await,
+            "pause" => self.pause(request).await,
+            "stop" => self.stop(request).await,
+            "get_dot" => self.get_dot(request).await,
+            _ => Response::method_not_found(request.id, &request.method),
+        }
+    }
+
+    async fn list_pipelines(&self, id: String) -> Response {
+        let infos = self.manager.list_pipelines().await;
+        let pipelines: Vec<PipelineInfoResult> = infos
+            .into_iter()
+            .map(|info| PipelineInfoResult {
+                id: info.id,
+                description: info.description,
+                state: info.state,
+                streaming: info.streaming,
+            })
+            .collect();
+
+        let result = ListPipelinesResult { pipelines };
+        Response::success(id, serde_json::to_value(result).unwrap())
+    }
+
+    async fn create_pipeline(&self, request: Request) -> Response {
+        let params: CreatePipelineParams = match serde_json::from_value(request.params) {
+            Ok(p) => p,
+            Err(e) => {
+                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
+            }
+        };
+
+        match self.manager.add_pipeline(&params.description).await {
+            Ok(pipeline_id) => {
+                let result = PipelineCreatedResult { pipeline_id };
+                Response::success(request.id, serde_json::to_value(result).unwrap())
+            }
+            Err(e) => Response::from_gpop_error(request.id, &e),
+        }
+    }
+
+    async fn remove_pipeline(&self, request: Request) -> Response {
+        let params: PipelineIdParams = match serde_json::from_value(request.params) {
+            Ok(p) => p,
+            Err(e) => {
+                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
+            }
+        };
+
+        match self.manager.remove_pipeline(&params.pipeline_id).await {
+            Ok(()) => Response::success(request.id, serde_json::json!({})),
+            Err(e) => Response::from_gpop_error(request.id, &e),
+        }
+    }
+
+    async fn get_pipeline(&self, request: Request) -> Response {
+        let params: PipelineIdParams = match serde_json::from_value(request.params) {
+            Ok(p) => p,
+            Err(e) => {
+                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
+            }
+        };
+
+        match self.manager.get_pipeline_info(&params.pipeline_id).await {
+            Ok(info) => {
+                let result = PipelineInfoResult {
+                    id: info.id,
+                    description: info.description,
+                    state: info.state,
+                    streaming: info.streaming,
+                };
+                Response::success(request.id, serde_json::to_value(result).unwrap())
+            }
+            Err(e) => Response::from_gpop_error(request.id, &e),
+        }
+    }
+
+    async fn set_state(&self, request: Request) -> Response {
+        let params: SetStateParams = match serde_json::from_value(request.params) {
+            Ok(p) => p,
+            Err(e) => {
+                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
+            }
+        };
+
+        let state: PipelineState = match params.state.parse() {
+            Ok(s) => s,
+            Err(e) => return Response::invalid_params(request.id, e),
+        };
+
+        match self.manager.set_state(&params.pipeline_id, state).await {
+            Ok(()) => {
+                let result = SuccessResult { success: true };
+                Response::success(request.id, serde_json::to_value(result).unwrap())
+            }
+            Err(e) => Response::from_gpop_error(request.id, &e),
+        }
+    }
+
+    async fn play(&self, request: Request) -> Response {
+        let params: PipelineIdParams = match serde_json::from_value(request.params) {
+            Ok(p) => p,
+            Err(e) => {
+                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
+            }
+        };
+
+        match self.manager.play(&params.pipeline_id).await {
+            Ok(()) => {
+                let result = SuccessResult { success: true };
+                Response::success(request.id, serde_json::to_value(result).unwrap())
+            }
+            Err(e) => Response::from_gpop_error(request.id, &e),
+        }
+    }
+
+    async fn pause(&self, request: Request) -> Response {
+        let params: PipelineIdParams = match serde_json::from_value(request.params) {
+            Ok(p) => p,
+            Err(e) => {
+                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
+            }
+        };
+
+        match self.manager.pause(&params.pipeline_id).await {
+            Ok(()) => {
+                let result = SuccessResult { success: true };
+                Response::success(request.id, serde_json::to_value(result).unwrap())
+            }
+            Err(e) => Response::from_gpop_error(request.id, &e),
+        }
+    }
+
+    async fn stop(&self, request: Request) -> Response {
+        let params: PipelineIdParams = match serde_json::from_value(request.params) {
+            Ok(p) => p,
+            Err(e) => {
+                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
+            }
+        };
+
+        match self.manager.stop(&params.pipeline_id).await {
+            Ok(()) => {
+                let result = SuccessResult { success: true };
+                Response::success(request.id, serde_json::to_value(result).unwrap())
+            }
+            Err(e) => Response::from_gpop_error(request.id, &e),
+        }
+    }
+
+    async fn get_dot(&self, request: Request) -> Response {
+        let params: GetDotParams = match serde_json::from_value(request.params) {
+            Ok(p) => p,
+            Err(e) => {
+                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
+            }
+        };
+
+        match self
+            .manager
+            .get_dot(&params.pipeline_id, params.details.as_deref())
+            .await
+        {
+            Ok(dot) => {
+                let result = DotResult { dot };
+                Response::success(request.id, serde_json::to_value(result).unwrap())
+            }
+            Err(e) => Response::from_gpop_error(request.id, &e),
+        }
+    }
+}
