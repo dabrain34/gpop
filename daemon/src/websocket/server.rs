@@ -13,7 +13,7 @@ use crate::event::EventReceiver;
 use crate::pipeline::PipelineManager;
 
 use super::handler::MessageHandler;
-use super::protocol::Request;
+use super::protocol::{Request, SnapshotParams};
 
 type ClientTx = mpsc::UnboundedSender<Message>;
 type ClientMap = Arc<RwLock<HashMap<SocketAddr, ClientTx>>>;
@@ -129,18 +129,42 @@ async fn handle_connection(
             Ok(Message::Text(text)) => {
                 debug!("Received from {}: {}", addr, text);
 
-                let response = match serde_json::from_str::<Request>(&text) {
-                    Ok(request) => handler.handle(request).await,
+                let request = match serde_json::from_str::<Request>(&text) {
+                    Ok(req) => req,
                     Err(e) => {
                         error!("Failed to parse request from {}: {}", addr, e);
-                        super::protocol::Response::parse_error(
+                        let response = super::protocol::Response::parse_error(
                             String::new(),
                             format!("Parse error: {}", e),
-                        )
+                        );
+                        let response_json = serde_json::to_string(&response).unwrap();
+                        let clients_map = clients.read().await;
+                        if let Some(tx) = clients_map.get(&addr) {
+                            let _ = tx.send(Message::Text(response_json.into()));
+                        }
+                        continue;
                     }
                 };
 
-                let response_json = serde_json::to_string(&response).unwrap();
+                // Handle snapshot specially - returns direct response without JSON-RPC wrapper
+                let response_json = if request.method == "snapshot" {
+                    let params: SnapshotParams = serde_json::from_value(request.params)
+                        .unwrap_or_default();
+                    let pipeline_id = params.pipeline_id.clone().unwrap_or_else(|| "0".to_string());
+                    if let Some(result) = handler.snapshot(params).await {
+                        serde_json::to_string(&result).unwrap()
+                    } else {
+                        let response = super::protocol::Response::pipeline_not_found(
+                            request.id,
+                            &pipeline_id,
+                        );
+                        serde_json::to_string(&response).unwrap()
+                    }
+                } else {
+                    let response = handler.handle(request).await;
+                    serde_json::to_string(&response).unwrap()
+                };
+
                 let clients_map = clients.read().await;
                 if let Some(tx) = clients_map.get(&addr) {
                     let _ = tx.send(Message::Text(response_json.into()));

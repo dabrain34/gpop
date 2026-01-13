@@ -27,7 +27,7 @@ impl MessageHandler {
             "play" => self.play(request).await,
             "pause" => self.pause(request).await,
             "stop" => self.stop(request).await,
-            "get_dot" => self.get_dot(request).await,
+            // snapshot is handled separately in server.rs
             _ => Response::method_not_found(request.id, &request.method),
         }
     }
@@ -124,14 +124,14 @@ impl MessageHandler {
     }
 
     async fn play(&self, request: Request) -> Response {
-        let params: PipelineIdParams = match serde_json::from_value(request.params) {
+        let params: OptionalPipelineIdParams = match serde_json::from_value(request.params) {
             Ok(p) => p,
-            Err(e) => {
-                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
-            }
+            Err(_) => OptionalPipelineIdParams::default(),
         };
 
-        match self.manager.play(&params.pipeline_id).await {
+        let pipeline_id = params.pipeline_id.unwrap_or_else(|| "0".to_string());
+
+        match self.manager.play(&pipeline_id).await {
             Ok(()) => {
                 let result = SuccessResult { success: true };
                 Response::success(request.id, serde_json::to_value(result).unwrap())
@@ -141,14 +141,14 @@ impl MessageHandler {
     }
 
     async fn pause(&self, request: Request) -> Response {
-        let params: PipelineIdParams = match serde_json::from_value(request.params) {
+        let params: OptionalPipelineIdParams = match serde_json::from_value(request.params) {
             Ok(p) => p,
-            Err(e) => {
-                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
-            }
+            Err(_) => OptionalPipelineIdParams::default(),
         };
 
-        match self.manager.pause(&params.pipeline_id).await {
+        let pipeline_id = params.pipeline_id.unwrap_or_else(|| "0".to_string());
+
+        match self.manager.pause(&pipeline_id).await {
             Ok(()) => {
                 let result = SuccessResult { success: true };
                 Response::success(request.id, serde_json::to_value(result).unwrap())
@@ -158,14 +158,14 @@ impl MessageHandler {
     }
 
     async fn stop(&self, request: Request) -> Response {
-        let params: PipelineIdParams = match serde_json::from_value(request.params) {
+        let params: OptionalPipelineIdParams = match serde_json::from_value(request.params) {
             Ok(p) => p,
-            Err(e) => {
-                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
-            }
+            Err(_) => OptionalPipelineIdParams::default(),
         };
 
-        match self.manager.stop(&params.pipeline_id).await {
+        let pipeline_id = params.pipeline_id.unwrap_or_else(|| "0".to_string());
+
+        match self.manager.stop(&pipeline_id).await {
             Ok(()) => {
                 let result = SuccessResult { success: true };
                 Response::success(request.id, serde_json::to_value(result).unwrap())
@@ -174,24 +174,22 @@ impl MessageHandler {
         }
     }
 
-    async fn get_dot(&self, request: Request) -> Response {
-        let params: GetDotParams = match serde_json::from_value(request.params) {
-            Ok(p) => p,
-            Err(e) => {
-                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
-            }
-        };
+    pub async fn snapshot(&self, params: SnapshotParams) -> Option<SnapshotResult> {
+        let pipeline_id = params.pipeline_id.unwrap_or_else(|| "0".to_string());
 
         match self
             .manager
-            .get_dot(&params.pipeline_id, params.details.as_deref())
+            .get_dot(&pipeline_id, params.details.as_deref())
             .await
         {
-            Ok(dot) => {
-                let result = DotResult { dot };
-                Response::success(request.id, serde_json::to_value(result).unwrap())
-            }
-            Err(e) => Response::from_gpop_error(request.id, &e),
+            Ok(dot) => Some(SnapshotResult {
+                response_type: "SnapshotResponse".to_string(),
+                pipelines: vec![PipelineSnapshot {
+                    id: pipeline_id,
+                    dot,
+                }],
+            }),
+            Err(_) => None,
         }
     }
 }

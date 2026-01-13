@@ -2,7 +2,6 @@ use gstreamer::prelude::*;
 use gstreamer::{self as gst, DebugGraphDetails};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
@@ -19,14 +18,13 @@ pub struct Pipeline {
     id: String,
     description: String,
     pipeline: gst::Pipeline,
-    event_tx: EventSender,
     bus_task: Option<tokio::task::JoinHandle<()>>,
     /// Flag to signal the bus watcher to stop
     shutdown_flag: Arc<AtomicBool>,
 }
 
 impl Pipeline {
-    pub fn new(id: String, description: &str, event_tx: EventSender) -> Result<Self> {
+    pub fn new(id: String, description: &str) -> Result<Self> {
         // Validate description length
         if description.len() > MAX_PIPELINE_DESCRIPTION_LENGTH {
             return Err(GpopError::InvalidPipeline(format!(
@@ -51,33 +49,33 @@ impl Pipeline {
             id,
             description: description.to_string(),
             pipeline,
-            event_tx,
             bus_task: None,
             shutdown_flag: Arc::new(AtomicBool::new(false)),
         })
     }
 
-    pub fn start_bus_watch(pipeline: Arc<Mutex<Self>>) {
+    /// Start the bus watcher task for this pipeline.
+    /// The bus, pipeline ID, event sender, and shutdown flag are extracted synchronously
+    /// before spawning to avoid race conditions with pipeline destruction.
+    pub fn start_bus_watch(
+        bus: gst::Bus,
+        id: String,
+        event_tx: EventSender,
+        shutdown_flag: Arc<AtomicBool>,
+        pipeline: Arc<Mutex<Self>>,
+    ) -> tokio::task::JoinHandle<()> {
         let pipeline_clone = Arc::clone(&pipeline);
 
-        let task = tokio::spawn(async move {
-            let (bus, id, event_tx, shutdown_flag) = {
-                let p = pipeline_clone.lock().await;
-                let bus = p.pipeline.bus().expect("Pipeline should have a bus");
-                (
-                    bus,
-                    p.id.clone(),
-                    p.event_tx.clone(),
-                    Arc::clone(&p.shutdown_flag),
-                )
-            };
-
+        tokio::spawn(async move {
             loop {
                 // Check shutdown flag first
                 if shutdown_flag.load(Ordering::Relaxed) {
                     debug!("Bus watcher for pipeline '{}' received shutdown signal", id);
                     break;
                 }
+
+                // Yield to allow other tasks to run (timed_pop is a blocking call)
+                tokio::task::yield_now().await;
 
                 let msg = {
                     let timeout = gst::ClockTime::from_mseconds(100);
@@ -150,19 +148,25 @@ impl Pipeline {
                         _ => {}
                     }
                 }
-
-                // Small yield to prevent busy-looping
-                tokio::time::sleep(Duration::from_millis(10)).await;
             }
 
             debug!("Bus watcher for pipeline '{}' stopped", id);
-        });
+        })
+    }
 
-        // Store the task handle
-        tokio::spawn(async move {
-            let mut p = pipeline.lock().await;
-            p.bus_task = Some(task);
-        });
+    /// Get the GStreamer bus for this pipeline
+    pub fn bus(&self) -> Option<gst::Bus> {
+        self.pipeline.bus()
+    }
+
+    /// Set the bus task handle
+    pub fn set_bus_task(&mut self, task: tokio::task::JoinHandle<()>) {
+        self.bus_task = Some(task);
+    }
+
+    /// Get the shutdown flag
+    pub fn shutdown_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.shutdown_flag)
     }
 
     pub fn id(&self) -> &str {

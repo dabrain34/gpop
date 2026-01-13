@@ -63,8 +63,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     gstreamer::init()?;
     info!("GStreamer initialized");
 
-    // Create event channel
-    let (event_tx, _event_rx) = create_event_channel();
+    // Create event channel (receivers are created via event_tx.subscribe())
+    let (event_tx, _) = create_event_channel();
 
     // Create pipeline manager
     let manager = Arc::new(PipelineManager::new(event_tx.clone()));

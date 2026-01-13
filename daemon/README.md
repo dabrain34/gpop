@@ -98,7 +98,7 @@ List all managed pipelines.
   "result": {
     "pipelines": [
       {
-        "id": "pipeline-0",
+        "id": "0",
         "description": "videotestsrc ! autovideosink",
         "state": "playing",
         "streaming": true
@@ -128,7 +128,7 @@ Create a new pipeline from a GStreamer pipeline description.
 {
   "id": "2",
   "result": {
-    "pipeline_id": "pipeline-0"
+    "pipeline_id": "0"
   }
 }
 ```
@@ -143,7 +143,7 @@ Remove and destroy a pipeline.
   "id": "3",
   "method": "remove_pipeline",
   "params": {
-    "pipeline_id": "pipeline-0"
+    "pipeline_id": "0"
   }
 }
 ```
@@ -166,7 +166,7 @@ Get information about a specific pipeline.
   "id": "4",
   "method": "get_pipeline",
   "params": {
-    "pipeline_id": "pipeline-0"
+    "pipeline_id": "0"
   }
 }
 ```
@@ -176,7 +176,7 @@ Get information about a specific pipeline.
 {
   "id": "4",
   "result": {
-    "id": "pipeline-0",
+    "id": "0",
     "description": "videotestsrc ! autovideosink",
     "state": "playing",
     "streaming": true
@@ -194,7 +194,7 @@ Set the pipeline state.
   "id": "5",
   "method": "set_state",
   "params": {
-    "pipeline_id": "pipeline-0",
+    "pipeline_id": "0",
     "state": "playing"
   }
 }
@@ -214,30 +214,48 @@ Valid states: `null`, `ready`, `paused`, `playing`
 
 #### `play`, `pause`, `stop`
 
-Convenience methods for state changes.
+Convenience methods for state changes. The `pipeline_id` parameter is optional and defaults to `"0"`.
 
 **Request:**
 ```json
 {
   "id": "6",
   "method": "play",
+  "params": {}
+}
+```
+
+Or with explicit pipeline ID:
+```json
+{
+  "id": "6",
+  "method": "play",
   "params": {
-    "pipeline_id": "pipeline-0"
+    "pipeline_id": "0"
   }
 }
 ```
 
-#### `get_dot`
+#### `snapshot`
 
-Get the DOT graph representation of a pipeline.
+Get the DOT graph representation of a pipeline. The `pipeline_id` parameter is optional and defaults to `"0"`.
 
 **Request:**
 ```json
 {
   "id": "7",
-  "method": "get_dot",
+  "method": "snapshot",
+  "params": {}
+}
+```
+
+Or with explicit pipeline ID and detail level:
+```json
+{
+  "id": "7",
+  "method": "snapshot",
   "params": {
-    "pipeline_id": "pipeline-0",
+    "pipeline_id": "0",
     "details": "all"
   }
 }
@@ -264,7 +282,7 @@ The server broadcasts events to all connected clients:
 {
   "event": "state_changed",
   "data": {
-    "pipeline_id": "pipeline-0",
+    "pipeline_id": "0",
     "old_state": "paused",
     "new_state": "playing"
   }
@@ -276,7 +294,7 @@ The server broadcasts events to all connected clients:
 {
   "event": "error",
   "data": {
-    "pipeline_id": "pipeline-0",
+    "pipeline_id": "0",
     "message": "Error description"
   }
 }
@@ -287,7 +305,7 @@ The server broadcasts events to all connected clients:
 {
   "event": "eos",
   "data": {
-    "pipeline_id": "pipeline-0"
+    "pipeline_id": "0"
   }
 }
 ```
@@ -297,7 +315,7 @@ The server broadcasts events to all connected clients:
 {
   "event": "pipeline_added",
   "data": {
-    "pipeline_id": "pipeline-0",
+    "pipeline_id": "0",
     "description": "videotestsrc ! autovideosink"
   }
 }
@@ -308,7 +326,7 @@ The server broadcasts events to all connected clients:
 {
   "event": "pipeline_removed",
   "data": {
-    "pipeline_id": "pipeline-0"
+    "pipeline_id": "0"
   }
 }
 ```
@@ -344,11 +362,11 @@ list                     - List all pipelines
 create <description>     - Create a new pipeline
 remove <id>              - Remove a pipeline
 info <id>                - Get pipeline info
-play <id>                - Play a pipeline
-pause <id>               - Pause a pipeline
-stop <id>                - Stop a pipeline
+play [id]                - Play a pipeline (default: 0)
+pause [id]               - Pause a pipeline (default: 0)
+stop [id]                - Stop a pipeline (default: 0)
 state <id> <state>       - Set pipeline state
-dot <id> [details]       - Get DOT graph
+snapshot [id] [details]  - Get DOT graph (default: 0)
 quit                     - Exit
 ```
 
@@ -363,18 +381,25 @@ Connected!
 Sending: {"id":"...","method":"create_pipeline","params":{"description":"videotestsrc ! autovideosink"}}
 
 [RESPONSE] id=...: {
-  "pipeline_id": "pipeline-0"
+  "pipeline_id": "0"
 }
 
-> play pipeline-0
-Sending: {"id":"...","method":"play","params":{"pipeline_id":"pipeline-0"}}
+> play
+Sending: {"id":"...","method":"play","params":{}}
 
-[EVENT] state_changed: {"new_state":"ready","old_state":"null","pipeline_id":"pipeline-0"}
-[EVENT] state_changed: {"new_state":"paused","old_state":"ready","pipeline_id":"pipeline-0"}
+[EVENT] state_changed: {"new_state":"ready","old_state":"null","pipeline_id":"0"}
+[EVENT] state_changed: {"new_state":"paused","old_state":"ready","pipeline_id":"0"}
 [RESPONSE] id=...: {
   "success": true
 }
-[EVENT] state_changed: {"new_state":"playing","old_state":"paused","pipeline_id":"pipeline-0"}
+[EVENT] state_changed: {"new_state":"playing","old_state":"paused","pipeline_id":"0"}
+
+> snapshot
+Sending: {"id":"...","method":"snapshot","params":{}}
+
+[RESPONSE] id=...: {
+  "dot": "digraph pipeline { ... }"
+}
 
 > list
 Sending: {"id":"...","method":"list_pipelines","params":{}}
@@ -383,15 +408,15 @@ Sending: {"id":"...","method":"list_pipelines","params":{}}
   "pipelines": [
     {
       "description": "videotestsrc ! autovideosink",
-      "id": "pipeline-0",
+      "id": "0",
       "state": "playing",
       "streaming": true
     }
   ]
 }
 
-> stop pipeline-0
-> remove pipeline-0
+> stop
+> remove 0
 > quit
 Goodbye!
 ```

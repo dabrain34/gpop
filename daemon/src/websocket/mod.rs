@@ -3,3 +3,6 @@ pub mod protocol;
 pub mod server;
 
 pub use server::WebSocketServer;
+
+#[cfg(test)]
+mod protocol_tests;
