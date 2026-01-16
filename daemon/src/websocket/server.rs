@@ -22,8 +22,9 @@ use crate::pipeline::PipelineManager;
 
 use super::handler::MessageHandler;
 use super::protocol::{Request, SnapshotParams};
+use super::{CLIENT_MESSAGE_BUFFER, DEFAULT_PIPELINE_ID, MAX_CONCURRENT_CLIENTS};
 
-type ClientTx = mpsc::UnboundedSender<Message>;
+type ClientTx = mpsc::Sender<Message>;
 type ClientMap = Arc<RwLock<HashMap<SocketAddr, ClientTx>>>;
 
 pub struct WebSocketServer {
@@ -59,8 +60,9 @@ impl WebSocketServer {
                         let msg = serde_json::to_string(&event).unwrap();
                         let clients = broadcast_clients.read().await;
                         for (addr, tx) in clients.iter() {
-                            if tx.send(Message::Text(msg.clone().into())).is_err() {
-                                debug!("Failed to send event to client {}", addr);
+                            // Use try_send to avoid blocking; if buffer is full, client is slow
+                            if tx.try_send(Message::Text(msg.clone().into())).is_err() {
+                                debug!("Failed to send event to client {} (buffer full or disconnected)", addr);
                             }
                         }
                     }
@@ -103,6 +105,15 @@ async fn handle_connection(
 ) {
     info!("New WebSocket connection from {}", addr);
 
+    // Check connection limit before accepting
+    {
+        let clients_map = clients.read().await;
+        if clients_map.len() >= MAX_CONCURRENT_CLIENTS {
+            warn!("Max clients ({}) reached, rejecting connection from {}", MAX_CONCURRENT_CLIENTS, addr);
+            return;
+        }
+    }
+
     let ws_stream = match tokio_tungstenite::accept_async(stream).await {
         Ok(ws) => ws,
         Err(e) => {
@@ -112,7 +123,7 @@ async fn handle_connection(
     };
 
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<Message>();
+    let (tx, mut rx) = mpsc::channel::<Message>(CLIENT_MESSAGE_BUFFER);
 
     // Register client
     {
@@ -141,14 +152,21 @@ async fn handle_connection(
                     Ok(req) => req,
                     Err(e) => {
                         error!("Failed to parse request from {}: {}", addr, e);
+
+                        // Try to extract the ID from malformed JSON for better error correlation
+                        let id = serde_json::from_str::<serde_json::Value>(&text)
+                            .ok()
+                            .and_then(|v| v.get("id").and_then(|id| id.as_str()).map(String::from))
+                            .unwrap_or_else(|| "unknown".to_string());
+
                         let response = super::protocol::Response::parse_error(
-                            String::new(),
+                            id,
                             format!("Parse error: {}", e),
                         );
                         let response_json = serde_json::to_string(&response).unwrap();
                         let clients_map = clients.read().await;
                         if let Some(tx) = clients_map.get(&addr) {
-                            let _ = tx.send(Message::Text(response_json.into()));
+                            let _ = tx.try_send(Message::Text(response_json.into()));
                         }
                         continue;
                     }
@@ -158,7 +176,7 @@ async fn handle_connection(
                 let response_json = if request.method == "snapshot" {
                     let params: SnapshotParams = serde_json::from_value(request.params)
                         .unwrap_or_default();
-                    let pipeline_id = params.pipeline_id.clone().unwrap_or_else(|| "0".to_string());
+                    let pipeline_id = params.pipeline_id.clone().unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
                     if let Some(result) = handler.snapshot(params).await {
                         serde_json::to_string(&result).unwrap()
                     } else {
@@ -175,7 +193,7 @@ async fn handle_connection(
 
                 let clients_map = clients.read().await;
                 if let Some(tx) = clients_map.get(&addr) {
-                    let _ = tx.send(Message::Text(response_json.into()));
+                    let _ = tx.try_send(Message::Text(response_json.into()));
                 }
             }
             Ok(Message::Close(_)) => {
@@ -185,7 +203,7 @@ async fn handle_connection(
             Ok(Message::Ping(data)) => {
                 let clients_map = clients.read().await;
                 if let Some(tx) = clients_map.get(&addr) {
-                    let _ = tx.send(Message::Pong(data));
+                    let _ = tx.try_send(Message::Pong(data));
                 }
             }
             Ok(_) => {}

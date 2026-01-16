@@ -26,11 +26,11 @@ use gpop::websocket::WebSocketServer;
 #[command(about = "GStreamer Prince of Parser - Pipeline management daemon")]
 struct Args {
     /// WebSocket port
-    #[arg(short, long, default_value = "9000")]
+    #[arg(short, long, default_value_t = gpop::websocket::DEFAULT_WEBSOCKET_PORT)]
     port: u16,
 
     /// Bind address for WebSocket server
-    #[arg(short, long, default_value = "127.0.0.1")]
+    #[arg(short, long, default_value = gpop::websocket::DEFAULT_BIND_ADDRESS)]
     bind: String,
 
     /// Initial pipeline(s) to create
