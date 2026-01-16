@@ -115,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
 
-        let parts: Vec<&str> = line.trim().split_whitespace().collect();
+        let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.is_empty() {
             continue;
         }
@@ -181,7 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 method: "snapshot".to_string(),
                 params: serde_json::json!({
                     "pipeline_id": parts[1],
-                    "details": parts.get(2).map(|s| *s)
+                    "details": parts.get(2).copied()
                 }),
             },
             "quit" | "exit" => {

@@ -5,6 +5,7 @@ use crate::event::PipelineState;
 use crate::pipeline::PipelineManager;
 
 use super::protocol::*;
+use super::DEFAULT_PIPELINE_ID;
 
 pub struct MessageHandler {
     manager: Arc<PipelineManager>,
@@ -124,12 +125,10 @@ impl MessageHandler {
     }
 
     async fn play(&self, request: Request) -> Response {
-        let params: OptionalPipelineIdParams = match serde_json::from_value(request.params) {
-            Ok(p) => p,
-            Err(_) => OptionalPipelineIdParams::default(),
-        };
+        let params: OptionalPipelineIdParams =
+            serde_json::from_value(request.params).unwrap_or_default();
 
-        let pipeline_id = params.pipeline_id.unwrap_or_else(|| "0".to_string());
+        let pipeline_id = params.pipeline_id.unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
 
         match self.manager.play(&pipeline_id).await {
             Ok(()) => {
@@ -141,12 +140,10 @@ impl MessageHandler {
     }
 
     async fn pause(&self, request: Request) -> Response {
-        let params: OptionalPipelineIdParams = match serde_json::from_value(request.params) {
-            Ok(p) => p,
-            Err(_) => OptionalPipelineIdParams::default(),
-        };
+        let params: OptionalPipelineIdParams =
+            serde_json::from_value(request.params).unwrap_or_default();
 
-        let pipeline_id = params.pipeline_id.unwrap_or_else(|| "0".to_string());
+        let pipeline_id = params.pipeline_id.unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
 
         match self.manager.pause(&pipeline_id).await {
             Ok(()) => {
@@ -158,12 +155,10 @@ impl MessageHandler {
     }
 
     async fn stop(&self, request: Request) -> Response {
-        let params: OptionalPipelineIdParams = match serde_json::from_value(request.params) {
-            Ok(p) => p,
-            Err(_) => OptionalPipelineIdParams::default(),
-        };
+        let params: OptionalPipelineIdParams =
+            serde_json::from_value(request.params).unwrap_or_default();
 
-        let pipeline_id = params.pipeline_id.unwrap_or_else(|| "0".to_string());
+        let pipeline_id = params.pipeline_id.unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
 
         match self.manager.stop(&pipeline_id).await {
             Ok(()) => {
@@ -175,7 +170,7 @@ impl MessageHandler {
     }
 
     pub async fn snapshot(&self, params: SnapshotParams) -> Option<SnapshotResult> {
-        let pipeline_id = params.pipeline_id.unwrap_or_else(|| "0".to_string());
+        let pipeline_id = params.pipeline_id.unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
 
         match self
             .manager

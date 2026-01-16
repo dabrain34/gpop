@@ -7,6 +7,7 @@ use tracing::{info, warn};
 use crate::error::{GpopError, Result};
 use crate::event::{EventSender, PipelineEvent, PipelineState};
 use crate::pipeline::parser::Pipeline;
+use super::SHUTDOWN_GRACE_PERIOD_MS;
 
 pub struct PipelineInfo {
     pub id: String,
@@ -197,7 +198,7 @@ impl PipelineManager {
                 p.signal_shutdown();
             }
             // Give bus watcher time to see the shutdown flag
-            tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(SHUTDOWN_GRACE_PERIOD_MS)).await;
             // Now stop the pipeline
             {
                 let p = pipeline.lock().await;
