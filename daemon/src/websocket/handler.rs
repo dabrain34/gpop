@@ -36,6 +36,7 @@ impl MessageHandler {
             "play" => self.play(request).await,
             "pause" => self.pause(request).await,
             "stop" => self.stop(request).await,
+            "get_position" => self.get_position(request).await,
             // snapshot is handled separately in server.rs
             _ => Response::method_not_found(request.id, &request.method),
         }
@@ -193,6 +194,30 @@ impl MessageHandler {
                 }],
             }),
             Err(_) => None,
+        }
+    }
+
+    async fn get_position(&self, request: Request) -> Response {
+        let params: OptionalPipelineIdParams =
+            serde_json::from_value(request.params).unwrap_or_default();
+
+        let pipeline_id = params.pipeline_id.unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
+
+        match self.manager.get_position(&pipeline_id).await {
+            Ok((position_ns, duration_ns)) => {
+                let progress = match (position_ns, duration_ns) {
+                    (Some(pos), Some(dur)) if dur > 0 => Some(pos as f64 / dur as f64),
+                    _ => None,
+                };
+
+                let result = PositionResult {
+                    position_ns,
+                    duration_ns,
+                    progress,
+                };
+                Response::success(request.id, serde_json::to_value(result).unwrap())
+            }
+            Err(e) => Response::from_gpop_error(request.id, &e),
         }
     }
 }

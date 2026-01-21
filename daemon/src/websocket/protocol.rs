@@ -208,3 +208,13 @@ pub struct SnapshotResult {
     pub response_type: String,
     pub pipelines: Vec<PipelineSnapshot>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PositionResult {
+    /// Current position in nanoseconds, if available
+    pub position_ns: Option<u64>,
+    /// Total duration in nanoseconds, if available
+    pub duration_ns: Option<u64>,
+    /// Progress as a value between 0.0 and 1.0, if both position and duration are available
+    pub progress: Option<f64>,
+}

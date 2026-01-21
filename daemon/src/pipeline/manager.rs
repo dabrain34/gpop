@@ -193,6 +193,13 @@ impl PipelineManager {
         Ok(p.get_dot(details))
     }
 
+    /// Get the current position and duration of a pipeline in nanoseconds.
+    pub async fn get_position(&self, id: &str) -> Result<(Option<u64>, Option<u64>)> {
+        let pipeline = self.get_pipeline(id).await?;
+        let p = pipeline.lock().await;
+        Ok(p.get_position())
+    }
+
     pub async fn shutdown(&self) {
         let pipelines_to_stop: Vec<_> = {
             let mut pipelines = self.pipelines.write().await;

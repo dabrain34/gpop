@@ -105,6 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  stop <id>                - Stop a pipeline");
     println!("  state <id> <state>       - Set pipeline state");
     println!("  dot <id> [details]       - Get DOT graph (details: media, caps, states, all)");
+    println!("  position [id]            - Get pipeline position/duration (default: 0)");
     println!("  quit                     - Exit");
     println!();
 
@@ -190,6 +191,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 params: serde_json::json!({
                     "pipeline_id": parts[1],
                     "details": parts.get(2).copied()
+                }),
+            },
+            "position" => Request {
+                id: new_id(),
+                method: "get_position".to_string(),
+                params: serde_json::json!({
+                    "pipeline_id": parts.get(1).copied()
                 }),
             },
             "quit" | "exit" => {

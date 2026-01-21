@@ -254,6 +254,22 @@ impl Pipeline {
         self.pipeline.debug_to_dot_data(detail_flags).to_string()
     }
 
+    /// Get the current position and duration of the pipeline in nanoseconds.
+    /// Returns (position_ns, duration_ns) where either value may be None if not available.
+    pub fn get_position(&self) -> (Option<u64>, Option<u64>) {
+        let position = self
+            .pipeline
+            .query_position::<gst::ClockTime>()
+            .map(|p| p.nseconds());
+
+        let duration = self
+            .pipeline
+            .query_duration::<gst::ClockTime>()
+            .map(|d| d.nseconds());
+
+        (position, duration)
+    }
+
     /// Signal the bus watcher to stop
     pub fn signal_shutdown(&self) {
         self.shutdown_flag.store(true, Ordering::Relaxed);
