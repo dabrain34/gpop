@@ -2,5 +2,6 @@
 members = [
     "daemon",
     "client/rust",
+    "web",
 ]
 resolver = "2"
