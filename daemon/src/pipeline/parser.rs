@@ -76,19 +76,28 @@ impl Pipeline {
 
         tokio::spawn(async move {
             loop {
-                // Check shutdown flag first
-                if shutdown_flag.load(Ordering::Relaxed) {
+                // Check shutdown flag first (use Acquire to synchronize with Release store)
+                if shutdown_flag.load(Ordering::Acquire) {
                     debug!("Bus watcher for pipeline '{}' received shutdown signal", id);
                     break;
                 }
 
-                // Yield to allow other tasks to run (timed_pop is a blocking call)
-                tokio::task::yield_now().await;
+                // Clone for use in spawn_blocking (bus is Send + Sync)
+                let bus_clone = bus.clone();
+                let shutdown_clone = Arc::clone(&shutdown_flag);
 
-                let msg = {
+                // Use spawn_blocking to avoid blocking the async runtime
+                let msg = tokio::task::spawn_blocking(move || {
+                    // Check shutdown flag again inside blocking context
+                    if shutdown_clone.load(Ordering::Acquire) {
+                        return None;
+                    }
                     let timeout = gst::ClockTime::from_mseconds(100);
-                    bus.timed_pop(timeout)
-                };
+                    bus_clone.timed_pop(timeout)
+                })
+                .await
+                .ok()
+                .flatten();
 
                 if let Some(msg) = msg {
                     match msg.view() {
@@ -272,7 +281,7 @@ impl Pipeline {
 
     /// Signal the bus watcher to stop
     pub fn signal_shutdown(&self) {
-        self.shutdown_flag.store(true, Ordering::Relaxed);
+        self.shutdown_flag.store(true, Ordering::Release);
     }
 }
 
@@ -280,8 +289,8 @@ impl Drop for Pipeline {
     fn drop(&mut self) {
         debug!("Dropping pipeline '{}'", self.id);
 
-        // Signal bus watcher to stop
-        self.shutdown_flag.store(true, Ordering::Relaxed);
+        // Signal bus watcher to stop (use Release to synchronize with Acquire load)
+        self.shutdown_flag.store(true, Ordering::Release);
 
         // Set pipeline to Null state
         let _ = self.pipeline.set_state(gst::State::Null);
