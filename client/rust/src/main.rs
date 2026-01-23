@@ -98,6 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nAvailable commands:");
     println!("  list                     - List all pipelines");
     println!("  create <description>     - Create a new pipeline");
+    println!("  update <id> <description> - Update pipeline description");
     println!("  remove <id>              - Remove a pipeline");
     println!("  info <id>                - Get pipeline info");
     println!("  play <id>                - Play a pipeline");
@@ -140,6 +141,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 method: "create_pipeline".to_string(),
                 params: serde_json::json!({
                     "description": parts[1..].join(" ")
+                }),
+            },
+            "update" if parts.len() > 2 => Request {
+                id: new_id(),
+                method: "update_pipeline".to_string(),
+                params: serde_json::json!({
+                    "pipeline_id": parts[1],
+                    "description": parts[2..].join(" ")
                 }),
             },
             "remove" if parts.len() == 2 => Request {

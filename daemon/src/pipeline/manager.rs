@@ -40,7 +40,18 @@ impl PipelineManager {
     }
 
     pub async fn add_pipeline(&self, description: &str) -> Result<String> {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst).to_string();
+        // Use Relaxed ordering - we only need uniqueness, not synchronization
+        let id_num = self.next_id.fetch_add(1, Ordering::Relaxed);
+
+        // Check for overflow (wrap-around to 0 after u32::MAX)
+        // In practice this is unlikely, but we handle it gracefully
+        if id_num == u32::MAX {
+            return Err(GpopError::InvalidPipeline(
+                "Pipeline ID counter overflow - too many pipelines created".to_string(),
+            ));
+        }
+
+        let id = id_num.to_string();
 
         let pipeline = Pipeline::new(id.clone(), description)?;
         let pipeline = Arc::new(Mutex::new(pipeline));
@@ -48,7 +59,9 @@ impl PipelineManager {
         // Extract bus watch parameters synchronously to avoid race conditions
         let (bus, shutdown_flag) = {
             let p = pipeline.lock().await;
-            let bus = p.bus().expect("Pipeline should have a bus");
+            let bus = p.bus().ok_or_else(|| {
+                GpopError::InvalidPipeline("Pipeline has no bus".to_string())
+            })?;
             (bus, p.shutdown_flag())
         };
 
@@ -198,6 +211,79 @@ impl PipelineManager {
         let pipeline = self.get_pipeline(id).await?;
         let p = pipeline.lock().await;
         Ok(p.get_position())
+    }
+
+    /// Update an existing pipeline with a new description.
+    /// This stops the old pipeline, removes it, and creates a new one with the same ID.
+    pub async fn update_pipeline(&self, id: &str, description: &str) -> Result<()> {
+        // Create the new pipeline first (validates the description before acquiring locks)
+        // This allows early failure without holding any locks
+        let new_pipeline = Pipeline::new(id.to_string(), description)?;
+        let new_pipeline = Arc::new(Mutex::new(new_pipeline));
+
+        // Extract bus watch parameters for the new pipeline
+        let (bus, shutdown_flag) = {
+            let p = new_pipeline.lock().await;
+            let bus = p.bus().ok_or_else(|| {
+                GpopError::InvalidPipeline("Pipeline has no bus".to_string())
+            })?;
+            (bus, p.shutdown_flag())
+        };
+
+        // Acquire write lock and perform atomic check-and-swap
+        // This prevents TOCTOU race conditions
+        let mut pipelines = self.pipelines.write().await;
+
+        // Verify the pipeline exists while holding the lock
+        if !pipelines.contains_key(id) {
+            // Drop the new pipeline (will clean up resources)
+            drop(new_pipeline);
+            return Err(GpopError::PipelineNotFound(id.to_string()));
+        }
+
+        // Start bus watcher for the new pipeline (after confirming old pipeline exists)
+        let bus_task = Pipeline::start_bus_watch(
+            bus,
+            id.to_string(),
+            self.event_tx.clone(),
+            shutdown_flag,
+            Arc::clone(&new_pipeline),
+        );
+
+        // Store the task handle
+        {
+            let mut p = new_pipeline.lock().await;
+            p.set_bus_task(bus_task);
+        }
+
+        // Stop and remove the old pipeline
+        if let Some(old_pipeline) = pipelines.remove(id) {
+            let p = old_pipeline.lock().await;
+            let _ = p.stop();
+            // Drop will clean up the bus task
+        }
+
+        // Insert the new pipeline with the same ID
+        pipelines.insert(id.to_string(), new_pipeline);
+
+        // Release the write lock before sending events
+        drop(pipelines);
+
+        info!("Updated pipeline '{}': {}", id, description);
+
+        // Send event to notify clients
+        if self
+            .event_tx
+            .send(PipelineEvent::PipelineUpdated {
+                pipeline_id: id.to_string(),
+                description: description.to_string(),
+            })
+            .is_err()
+        {
+            warn!("Failed to send PipelineUpdated event: no receivers");
+        }
+
+        Ok(())
     }
 
     pub async fn shutdown(&self) {

@@ -236,3 +236,68 @@ async fn test_events_emitted_on_remove() {
         _ => panic!("Expected PipelineRemoved event"),
     }
 }
+
+#[tokio::test]
+async fn test_update_pipeline() {
+    init_gstreamer();
+    let (tx, _rx) = create_event_channel();
+    let manager = PipelineManager::new(tx);
+
+    let id = manager.add_pipeline("fakesrc ! fakesink").await.unwrap();
+    assert_eq!(manager.get_pipeline_description(&id).await.unwrap(), "fakesrc ! fakesink");
+
+    // Update the pipeline with a new description
+    manager.update_pipeline(&id, "videotestsrc ! fakesink").await.unwrap();
+
+    // Verify the description changed but ID remains the same
+    assert_eq!(manager.get_pipeline_description(&id).await.unwrap(), "videotestsrc ! fakesink");
+    assert_eq!(manager.pipeline_count().await, 1);
+}
+
+#[tokio::test]
+async fn test_update_pipeline_nonexistent() {
+    init_gstreamer();
+    let (tx, _rx) = create_event_channel();
+    let manager = PipelineManager::new(tx);
+
+    let result = manager.update_pipeline("nonexistent", "fakesrc ! fakesink").await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_update_pipeline_invalid_description() {
+    init_gstreamer();
+    let (tx, _rx) = create_event_channel();
+    let manager = PipelineManager::new(tx);
+
+    let id = manager.add_pipeline("fakesrc ! fakesink").await.unwrap();
+
+    // Try to update with an invalid description
+    let result = manager.update_pipeline(&id, "invalid_element_xyz ! fakesink").await;
+    assert!(result.is_err());
+
+    // Original pipeline should still be intact
+    assert_eq!(manager.get_pipeline_description(&id).await.unwrap(), "fakesrc ! fakesink");
+    assert_eq!(manager.pipeline_count().await, 1);
+}
+
+#[tokio::test]
+async fn test_update_pipeline_emits_event() {
+    init_gstreamer();
+    let (tx, mut rx) = create_event_channel();
+    let manager = PipelineManager::new(tx);
+
+    let id = manager.add_pipeline("fakesrc ! fakesink").await.unwrap();
+    let _ = rx.recv().await; // Consume PipelineAdded event from add
+
+    manager.update_pipeline(&id, "videotestsrc ! fakesink").await.unwrap();
+
+    let event = rx.recv().await.unwrap();
+    match event {
+        PipelineEvent::PipelineUpdated { pipeline_id, description } => {
+            assert_eq!(pipeline_id, id);
+            assert_eq!(description, "videotestsrc ! fakesink");
+        }
+        _ => panic!("Expected PipelineUpdated event after update"),
+    }
+}

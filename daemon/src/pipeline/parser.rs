@@ -33,6 +33,14 @@ pub struct Pipeline {
 
 impl Pipeline {
     pub fn new(id: String, description: &str) -> Result<Self> {
+        // Validate description is not empty or whitespace-only
+        let trimmed = description.trim();
+        if trimmed.is_empty() {
+            return Err(GpopError::InvalidPipeline(
+                "Pipeline description cannot be empty".to_string(),
+            ));
+        }
+
         // Validate description length
         if description.len() > MAX_PIPELINE_DESCRIPTION_LENGTH {
             return Err(GpopError::InvalidPipeline(format!(
@@ -42,9 +50,8 @@ impl Pipeline {
             )));
         }
 
-        // Note: gst::init() should be called once at startup, not here
-        // This is kept for safety in case Pipeline::new is called without prior initialization
-        let _ = gst::init();
+        // Note: gst::init() must be called once at startup in main.rs before creating pipelines.
+        // We don't call it here to avoid masking initialization errors.
 
         let pipeline = gst::parse::launch(description)
             .map_err(|e| GpopError::InvalidPipeline(e.to_string()))?

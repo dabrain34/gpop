@@ -88,6 +88,11 @@ pub enum PipelineEvent {
         pipeline_id: String,
         description: String,
     },
+    #[serde(rename = "pipeline_updated")]
+    PipelineUpdated {
+        pipeline_id: String,
+        description: String,
+    },
     #[serde(rename = "pipeline_removed")]
     PipelineRemoved { pipeline_id: String },
 }

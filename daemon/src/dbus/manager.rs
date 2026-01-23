@@ -39,6 +39,13 @@ impl ManagerInterface {
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
     }
 
+    async fn update_pipeline(&self, id: &str, description: &str) -> zbus::fdo::Result<()> {
+        self.manager
+            .update_pipeline(id, description)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
+    }
+
     #[zbus(property)]
     async fn pipelines(&self) -> u32 {
         self.manager.pipeline_count().await as u32

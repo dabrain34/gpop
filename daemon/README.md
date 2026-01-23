@@ -10,7 +10,7 @@ GStreamer Prince of Parser - A pipeline management daemon with WebSocket and DBu
 
 - **WebSocket API**: JSON-RPC 2.0 based protocol for pipeline management
 - **DBus Interface** (Linux only): Native DBus integration for desktop applications
-- **Real-time Events**: Receive pipeline state changes, errors, and EOS notifications
+- **Real-time Events**: Receive pipeline state changes, errors, EOS, and lifecycle notifications
 - **Pipeline Introspection**: Get DOT graph representations of pipelines
 
 ## Building
@@ -314,6 +314,17 @@ The server broadcasts events to all connected clients:
 ```json
 {
   "event": "pipeline_added",
+  "data": {
+    "pipeline_id": "0",
+    "description": "videotestsrc ! autovideosink"
+  }
+}
+```
+
+#### `pipeline_updated`
+```json
+{
+  "event": "pipeline_updated",
   "data": {
     "pipeline_id": "0",
     "description": "videotestsrc ! autovideosink"
