@@ -14,8 +14,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::event::PipelineState;
-
 /// JSON-RPC 2.0 standard error codes
 pub mod error_codes {
     /// Parse error - Invalid JSON was received
@@ -141,80 +139,31 @@ impl Response {
     }
 }
 
-// Request parameter types
+// Manager-level request parameter types
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreatePipelineParams {
     pub description: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct PipelineIdParams {
-    pub pipeline_id: String,
-}
+// Manager-level response result types
 
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct OptionalPipelineIdParams {
-    #[serde(default)]
-    pub pipeline_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SetStateParams {
-    pub pipeline_id: String,
-    pub state: String,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct SnapshotParams {
-    #[serde(default)]
-    pub pipeline_id: Option<String>,
-    #[serde(default)]
-    pub details: Option<String>,
-}
-
-// Response result types
 #[derive(Debug, Clone, Serialize)]
 pub struct PipelineCreatedResult {
     pub pipeline_id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct PipelineInfoResult {
-    pub id: String,
-    pub description: String,
-    pub state: PipelineState,
-    pub streaming: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct ListPipelinesResult {
-    pub pipelines: Vec<PipelineInfoResult>,
+    pub pipelines: Vec<super::pipeline::PipelineInfoResult>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct SuccessResult {
-    pub success: bool,
+pub struct VersionResult {
+    pub version: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct PipelineSnapshot {
-    pub id: String,
-    pub dot: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SnapshotResult {
-    #[serde(rename = "type")]
-    pub response_type: String,
-    pub pipelines: Vec<PipelineSnapshot>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PositionResult {
-    /// Current position in nanoseconds, if available
-    pub position_ns: Option<u64>,
-    /// Total duration in nanoseconds, if available
-    pub duration_ns: Option<u64>,
-    /// Progress as a value between 0.0 and 1.0, if both position and duration are available
-    pub progress: Option<f64>,
+pub struct PipelineCountResult {
+    pub count: usize,
 }

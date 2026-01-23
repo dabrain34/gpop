@@ -6,10 +6,12 @@
 //
 // SPDX-License-Identifier: GPL-3.0-only
 
-pub mod handler;
+pub mod manager;
+pub mod pipeline;
 pub mod protocol;
 pub mod server;
 
+pub use manager::ManagerInterface;
 pub use server::WebSocketServer;
 
 /// Maximum number of concurrent WebSocket clients

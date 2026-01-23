@@ -12,14 +12,17 @@ use tracing::debug;
 use crate::event::PipelineState;
 use crate::pipeline::PipelineManager;
 
+use super::pipeline::*;
 use super::protocol::*;
 use super::DEFAULT_PIPELINE_ID;
 
-pub struct MessageHandler {
+/// WebSocket interface for managing pipelines.
+/// This is the WebSocket equivalent of the DBus `ManagerInterface`.
+pub struct ManagerInterface {
     manager: Arc<PipelineManager>,
 }
 
-impl MessageHandler {
+impl ManagerInterface {
     pub fn new(manager: Arc<PipelineManager>) -> Self {
         Self { manager }
     }
@@ -37,9 +40,27 @@ impl MessageHandler {
             "pause" => self.pause(request).await,
             "stop" => self.stop(request).await,
             "get_position" => self.get_position(request).await,
+            "update_pipeline" => self.update_pipeline(request).await,
+            "get_version" => self.get_version(request.id),
+            "get_pipeline_count" => self.get_pipeline_count(request.id).await,
             // snapshot is handled separately in server.rs
             _ => Response::method_not_found(request.id, &request.method),
         }
+    }
+
+    /// Get the daemon version
+    fn get_version(&self, id: String) -> Response {
+        let result = VersionResult {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+        };
+        Response::success(id, serde_json::to_value(result).unwrap())
+    }
+
+    /// Get the number of managed pipelines
+    async fn get_pipeline_count(&self, id: String) -> Response {
+        let count = self.manager.pipeline_count().await;
+        let result = PipelineCountResult { count };
+        Response::success(id, serde_json::to_value(result).unwrap())
     }
 
     async fn list_pipelines(&self, id: String) -> Response {
@@ -178,23 +199,26 @@ impl MessageHandler {
         }
     }
 
-    pub async fn snapshot(&self, params: SnapshotParams) -> Option<SnapshotResult> {
-        let pipeline_id = params.pipeline_id.unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
+    pub async fn snapshot(
+        &self,
+        params: SnapshotParams,
+    ) -> Result<SnapshotResult, crate::error::GpopError> {
+        let pipeline_id = params
+            .pipeline_id
+            .unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
 
-        match self
+        let dot = self
             .manager
             .get_dot(&pipeline_id, params.details.as_deref())
-            .await
-        {
-            Ok(dot) => Some(SnapshotResult {
-                response_type: "SnapshotResponse".to_string(),
-                pipelines: vec![PipelineSnapshot {
-                    id: pipeline_id,
-                    dot,
-                }],
-            }),
-            Err(_) => None,
-        }
+            .await?;
+
+        Ok(SnapshotResult {
+            response_type: "SnapshotResponse".to_string(),
+            pipelines: vec![PipelineSnapshot {
+                id: pipeline_id,
+                dot,
+            }],
+        })
     }
 
     async fn get_position(&self, request: Request) -> Response {
@@ -215,6 +239,27 @@ impl MessageHandler {
                     duration_ns,
                     progress,
                 };
+                Response::success(request.id, serde_json::to_value(result).unwrap())
+            }
+            Err(e) => Response::from_gpop_error(request.id, &e),
+        }
+    }
+
+    async fn update_pipeline(&self, request: Request) -> Response {
+        let params: UpdatePipelineParams = match serde_json::from_value(request.params) {
+            Ok(p) => p,
+            Err(e) => {
+                return Response::invalid_params(request.id, format!("Invalid params: {}", e))
+            }
+        };
+
+        match self
+            .manager
+            .update_pipeline(&params.pipeline_id, &params.description)
+            .await
+        {
+            Ok(()) => {
+                let result = SuccessResult { success: true };
                 Response::success(request.id, serde_json::to_value(result).unwrap())
             }
             Err(e) => Response::from_gpop_error(request.id, &e),

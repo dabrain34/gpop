@@ -20,9 +20,10 @@ use crate::error::Result;
 use crate::event::EventReceiver;
 use crate::pipeline::PipelineManager;
 
-use super::handler::MessageHandler;
-use super::protocol::{Request, SnapshotParams};
-use super::{CLIENT_MESSAGE_BUFFER, DEFAULT_PIPELINE_ID, MAX_CONCURRENT_CLIENTS};
+use super::manager::ManagerInterface;
+use super::pipeline::SnapshotParams;
+use super::protocol::Request;
+use super::{CLIENT_MESSAGE_BUFFER, MAX_CONCURRENT_CLIENTS};
 
 type ClientTx = mpsc::Sender<Message>;
 type ClientMap = Arc<RwLock<HashMap<SocketAddr, ClientTx>>>;
@@ -131,7 +132,7 @@ async fn handle_connection(
         clients_map.insert(addr, tx);
     }
 
-    let handler = MessageHandler::new(manager);
+    let handler = ManagerInterface::new(manager);
 
     // Spawn task to forward messages from channel to WebSocket
     let sender_task = tokio::spawn(async move {
@@ -174,17 +175,15 @@ async fn handle_connection(
 
                 // Handle snapshot specially - returns direct response without JSON-RPC wrapper
                 let response_json = if request.method == "snapshot" {
-                    let params: SnapshotParams = serde_json::from_value(request.params)
-                        .unwrap_or_default();
-                    let pipeline_id = params.pipeline_id.clone().unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
-                    if let Some(result) = handler.snapshot(params).await {
-                        serde_json::to_string(&result).unwrap()
-                    } else {
-                        let response = super::protocol::Response::pipeline_not_found(
-                            request.id,
-                            &pipeline_id,
-                        );
-                        serde_json::to_string(&response).unwrap()
+                    let params: SnapshotParams =
+                        serde_json::from_value(request.params).unwrap_or_default();
+                    match handler.snapshot(params).await {
+                        Ok(result) => serde_json::to_string(&result).unwrap(),
+                        Err(e) => {
+                            let response =
+                                super::protocol::Response::from_gpop_error(request.id, &e);
+                            serde_json::to_string(&response).unwrap()
+                        }
                     }
                 } else {
                     let response = handler.handle(request).await;
