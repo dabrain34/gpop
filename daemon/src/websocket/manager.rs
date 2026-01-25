@@ -33,7 +33,7 @@ impl ManagerInterface {
             "list_pipelines" => self.list_pipelines(request.id).await,
             "create_pipeline" => self.create_pipeline(request).await,
             "remove_pipeline" => self.remove_pipeline(request).await,
-            "get_pipeline" => self.get_pipeline(request).await,
+            "get_pipeline_info" => self.get_pipeline_info(request).await,
             "set_state" => self.set_state(request).await,
             "play" => self.play(request).await,
             "pause" => self.pause(request).await,
@@ -120,7 +120,7 @@ impl ManagerInterface {
         }
     }
 
-    async fn get_pipeline(&self, request: Request) -> Response {
+    async fn get_pipeline_info(&self, request: Request) -> Response {
         let params: PipelineIdParams = match serde_json::from_value(request.params) {
             Ok(p) => p,
             Err(e) => {

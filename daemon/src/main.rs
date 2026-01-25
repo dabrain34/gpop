@@ -44,6 +44,15 @@ struct Args {
     /// Disable WebSocket interface
     #[arg(long)]
     no_websocket: bool,
+
+    /// API key for WebSocket authentication (optional)
+    #[arg(long, env = "GPOP_API_KEY")]
+    api_key: Option<String>,
+
+    /// Allowed origins for WebSocket connections (optional, can be specified multiple times)
+    /// If not specified, all origins are allowed. Use for CSRF protection in browser contexts.
+    #[arg(long = "allowed-origin")]
+    allowed_origins: Vec<String>,
 }
 
 #[tokio::main]
@@ -116,8 +125,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start WebSocket server
     let ws_handle = if !args.no_websocket {
         let addr: SocketAddr = format!("{}:{}", args.bind, args.port).parse()?;
-        let ws_server = WebSocketServer::new(addr, Arc::clone(&manager));
+        let allowed_origins = if args.allowed_origins.is_empty() {
+            None
+        } else {
+            Some(args.allowed_origins.clone())
+        };
+        let ws_server = WebSocketServer::new(
+            addr,
+            Arc::clone(&manager),
+            args.api_key.clone(),
+            allowed_origins.clone(),
+        );
         let ws_event_rx = event_tx.subscribe();
+
+        if args.api_key.is_some() {
+            info!("WebSocket API key authentication enabled");
+        }
+        if let Some(ref origins) = allowed_origins {
+            info!("WebSocket origin validation enabled for: {:?}", origins);
+        }
 
         Some(tokio::spawn(async move {
             if let Err(e) = ws_server.run(ws_event_rx).await {
