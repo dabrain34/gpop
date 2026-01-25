@@ -42,6 +42,9 @@ pub mod error_codes {
     pub const DESCRIPTION_TOO_LONG: i32 = -32004;
 }
 
+/// JSON-RPC 2.0 version string
+pub const JSONRPC_VERSION: &str = "2.0";
+
 fn default_request_id() -> String {
     "0".to_string()
 }
@@ -50,8 +53,15 @@ fn default_method() -> String {
     "snapshot".to_string()
 }
 
+fn default_jsonrpc_version() -> String {
+    JSONRPC_VERSION.to_string()
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Request {
+    /// JSON-RPC version (should be "2.0")
+    #[serde(default = "default_jsonrpc_version")]
+    pub jsonrpc: String,
     #[serde(default = "default_request_id")]
     pub id: String,
     #[serde(default = "default_method")]
@@ -62,6 +72,8 @@ pub struct Request {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Response {
+    /// JSON-RPC version (always "2.0")
+    pub jsonrpc: &'static str,
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
@@ -78,6 +90,7 @@ pub struct ErrorInfo {
 impl Response {
     pub fn success(id: String, result: Value) -> Self {
         Self {
+            jsonrpc: JSONRPC_VERSION,
             id,
             result: Some(result),
             error: None,
@@ -86,6 +99,7 @@ impl Response {
 
     pub fn error(id: String, code: i32, message: String) -> Self {
         Self {
+            jsonrpc: JSONRPC_VERSION,
             id,
             result: None,
             error: Some(ErrorInfo { code, message }),

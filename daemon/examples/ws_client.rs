@@ -150,7 +150,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
             "info" if parts.len() == 2 => Request {
                 id: new_id(),
-                method: "get_pipeline".to_string(),
+                method: "get_pipeline_info".to_string(),
                 params: serde_json::json!({
                     "pipeline_id": parts[1]
                 }),

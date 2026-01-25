@@ -11,8 +11,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
+use subtle::ConstantTimeEq;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, RwLock};
+use tokio_tungstenite::tungstenite::handshake::server::{
+    ErrorResponse, Request as WsRequest, Response as WsResponse,
+};
+use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
 
@@ -28,18 +33,37 @@ use super::{CLIENT_MESSAGE_BUFFER, MAX_CONCURRENT_CLIENTS};
 type ClientTx = mpsc::Sender<Message>;
 type ClientMap = Arc<RwLock<HashMap<SocketAddr, ClientTx>>>;
 
+/// Serialize a value to JSON, returning an error JSON response if serialization fails.
+/// This should never fail for well-typed structs, but we handle it gracefully.
+fn serialize_or_error<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_string(value).unwrap_or_else(|e| {
+        error!("JSON serialization failed: {}", e);
+        // Return a minimal valid JSON error response
+        r#"{"jsonrpc":"2.0","id":"unknown","error":{"code":-32603,"message":"Internal serialization error"}}"#.to_string()
+    })
+}
+
 pub struct WebSocketServer {
     addr: SocketAddr,
     manager: Arc<PipelineManager>,
     clients: ClientMap,
+    api_key: Option<String>,
+    allowed_origins: Option<Vec<String>>,
 }
 
 impl WebSocketServer {
-    pub fn new(addr: SocketAddr, manager: Arc<PipelineManager>) -> Self {
+    pub fn new(
+        addr: SocketAddr,
+        manager: Arc<PipelineManager>,
+        api_key: Option<String>,
+        allowed_origins: Option<Vec<String>>,
+    ) -> Self {
         Self {
             addr,
             manager,
             clients: Arc::new(RwLock::new(HashMap::new())),
+            api_key,
+            allowed_origins,
         }
     }
 
@@ -49,6 +73,8 @@ impl WebSocketServer {
 
         let clients = Arc::clone(&self.clients);
         let manager = Arc::clone(&self.manager);
+        let api_key = self.api_key.clone();
+        let allowed_origins = self.allowed_origins.clone();
 
         // Spawn event broadcaster
         let broadcast_clients = Arc::clone(&clients);
@@ -58,7 +84,7 @@ impl WebSocketServer {
                     Ok(event) => {
                         // Serialize once, then clone for each client
                         // Note: Message::Text requires owned String, so we must clone per-client
-                        let msg = serde_json::to_string(&event).unwrap();
+                        let msg = serialize_or_error(&event);
                         let clients = broadcast_clients.read().await;
                         for (addr, tx) in clients.iter() {
                             // Use try_send to avoid blocking; if buffer is full, client is slow
@@ -84,7 +110,16 @@ impl WebSocketServer {
                 Ok((stream, addr)) => {
                     let clients = Arc::clone(&clients);
                     let manager = Arc::clone(&manager);
-                    tokio::spawn(handle_connection(stream, addr, clients, manager));
+                    let api_key = api_key.clone();
+                    let allowed_origins = allowed_origins.clone();
+                    tokio::spawn(handle_connection(
+                        stream,
+                        addr,
+                        clients,
+                        manager,
+                        api_key,
+                        allowed_origins,
+                    ));
                 }
                 Err(e) => {
                     error!("Failed to accept connection: {}", e);
@@ -103,6 +138,8 @@ async fn handle_connection(
     addr: SocketAddr,
     clients: ClientMap,
     manager: Arc<PipelineManager>,
+    api_key: Option<String>,
+    allowed_origins: Option<Vec<String>>,
 ) {
     info!("New WebSocket connection from {}", addr);
 
@@ -110,16 +147,82 @@ async fn handle_connection(
     {
         let clients_map = clients.read().await;
         if clients_map.len() >= MAX_CONCURRENT_CLIENTS {
-            warn!("Max clients ({}) reached, rejecting connection from {}", MAX_CONCURRENT_CLIENTS, addr);
+            warn!(
+                "Max clients ({}) reached, rejecting connection from {}",
+                MAX_CONCURRENT_CLIENTS, addr
+            );
             return;
         }
     }
 
-    let ws_stream = match tokio_tungstenite::accept_async(stream).await {
-        Ok(ws) => ws,
-        Err(e) => {
-            error!("WebSocket handshake failed for {}: {}", addr, e);
-            return;
+    // Accept WebSocket connection with optional API key and origin validation
+    let ws_stream = if api_key.is_some() || allowed_origins.is_some() {
+        let expected_key = api_key;
+        let origins = allowed_origins;
+        let callback = move |req: &WsRequest,
+                             res: WsResponse|
+              -> std::result::Result<WsResponse, ErrorResponse> {
+            // Validate Origin header if allowed_origins is configured
+            // Note: Non-browser clients (CLI tools, scripts) typically don't send Origin headers.
+            // If Origin is absent, we allow the request to support programmatic API access.
+            // Only reject if Origin is present but not in the allowed list.
+            if let Some(ref allowed) = origins {
+                if let Some(origin_header) = req.headers().get("Origin") {
+                    let origin = origin_header.to_str().unwrap_or("");
+                    if !allowed.iter().any(|o| o == origin) {
+                        warn!(
+                            "Rejected connection: origin '{}' not in allowed list",
+                            origin
+                        );
+                        let mut err = ErrorResponse::new(None);
+                        *err.status_mut() = StatusCode::FORBIDDEN;
+                        return Err(err);
+                    }
+                }
+                // No Origin header = non-browser client, allow through
+            }
+
+            // Validate API key if configured
+            if let Some(ref expected) = expected_key {
+                match req.headers().get("Authorization") {
+                    Some(value) => {
+                        let provided = value.to_str().unwrap_or("").as_bytes();
+                        let expected_bytes = expected.as_bytes();
+                        // Use constant-time comparison to prevent timing attacks
+                        if provided.len() == expected_bytes.len()
+                            && bool::from(provided.ct_eq(expected_bytes))
+                        {
+                            return Ok(res);
+                        } else {
+                            let mut err = ErrorResponse::new(None);
+                            *err.status_mut() = StatusCode::FORBIDDEN;
+                            return Err(err);
+                        }
+                    }
+                    None => {
+                        let mut err = ErrorResponse::new(None);
+                        *err.status_mut() = StatusCode::UNAUTHORIZED;
+                        return Err(err);
+                    }
+                }
+            }
+
+            Ok(res)
+        };
+        match tokio_tungstenite::accept_hdr_async(stream, callback).await {
+            Ok(ws) => ws,
+            Err(e) => {
+                error!("WebSocket handshake failed for {}: {}", addr, e);
+                return;
+            }
+        }
+    } else {
+        match tokio_tungstenite::accept_async(stream).await {
+            Ok(ws) => ws,
+            Err(e) => {
+                error!("WebSocket handshake failed for {}: {}", addr, e);
+                return;
+            }
         }
     };
 
@@ -164,7 +267,7 @@ async fn handle_connection(
                             id,
                             format!("Parse error: {}", e),
                         );
-                        let response_json = serde_json::to_string(&response).unwrap();
+                        let response_json = serialize_or_error(&response);
                         let clients_map = clients.read().await;
                         if let Some(tx) = clients_map.get(&addr) {
                             let _ = tx.try_send(Message::Text(response_json.into()));
@@ -178,16 +281,16 @@ async fn handle_connection(
                     let params: SnapshotParams =
                         serde_json::from_value(request.params).unwrap_or_default();
                     match handler.snapshot(params).await {
-                        Ok(result) => serde_json::to_string(&result).unwrap(),
+                        Ok(result) => serialize_or_error(&result),
                         Err(e) => {
                             let response =
                                 super::protocol::Response::from_gpop_error(request.id, &e);
-                            serde_json::to_string(&response).unwrap()
+                            serialize_or_error(&response)
                         }
                     }
                 } else {
                     let response = handler.handle(request).await;
-                    serde_json::to_string(&response).unwrap()
+                    serialize_or_error(&response)
                 };
 
                 let clients_map = clients.read().await;

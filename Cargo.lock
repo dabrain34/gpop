@@ -491,7 +491,7 @@ dependencies = [
 
 [[package]]
 name = "gpop-client"
-version = "1.0.0"
+version = "0.2.0"
 dependencies = [
  "futures-util",
  "serde",
@@ -503,13 +503,14 @@ dependencies = [
 
 [[package]]
 name = "gpop-daemon"
-version = "1.0.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "futures-util",
  "gstreamer",
  "serde",
  "serde_json",
+ "subtle",
  "thiserror",
  "tokio",
  "tokio-tungstenite",
@@ -1068,6 +1069,12 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "subtle"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"

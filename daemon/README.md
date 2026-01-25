@@ -2,6 +2,33 @@
 
 GStreamer Prince of Parser - A pipeline management daemon with WebSocket and DBus interfaces.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Building](#building)
+  - [With Cargo (standalone)](#with-cargo-standalone)
+  - [With Meson (full project)](#with-meson-full-project)
+- [Running the Server](#running-the-server)
+  - [Command Line Options](#command-line-options)
+  - [Environment Variables](#environment-variables)
+- [Authentication](#authentication)
+  - [Authentication Responses](#authentication-responses)
+  - [Client Examples](#client-examples)
+- [WebSocket API](#websocket-api)
+  - [Protocol](#protocol)
+  - [Methods](#methods)
+  - [Events](#events)
+  - [Error Codes](#error-codes)
+- [Example Client](#example-client)
+  - [Client Commands](#client-commands)
+  - [Example Session](#example-session)
+- [DBus Interface (Linux only)](#dbus-interface-linux-only)
+  - [Manager Interface](#manager-interface)
+  - [Pipeline Interface](#pipeline-interface)
+  - [DBus Example](#dbus-example)
+- [License](#license)
+
 ## Overview
 
 `gpop-rs` is a Rust implementation of a GStreamer pipeline manager that allows you to create, control, and monitor GStreamer pipelines through WebSocket and DBus interfaces.
@@ -15,22 +42,50 @@ GStreamer Prince of Parser - A pipeline management daemon with WebSocket and DBu
 
 ## Building
 
+### With Cargo (standalone)
+
 ```bash
-cd gpop-rs
+cd daemon
 cargo build --release
+```
+
+The binary will be at `target/release/gpop-daemon`.
+
+### With Meson (full project)
+
+From the project root:
+
+```bash
+meson setup builddir
+ninja -C builddir
+```
+
+The binary will be at `builddir/release/gpop-daemon`.
+
+To build only the daemon (without clients):
+
+```bash
+meson setup builddir -Dclient=false -Dc_client=false
+ninja -C builddir
 ```
 
 ## Running the Server
 
 ```bash
 # Default: bind to 127.0.0.1:9000
-./target/release/gpop-rs
+gpop-daemon
 
 # Custom bind address and port
-./target/release/gpop-rs --bind 0.0.0.0 --port 8080
+gpop-daemon --bind 0.0.0.0 --port 8080
+
+# With initial pipeline
+gpop-daemon -P "videotestsrc ! autovideosink"
+
+# With authentication
+gpop-daemon --api-key mysecretkey
 
 # Enable debug logging
-RUST_LOG=debug ./target/release/gpop-rs
+RUST_LOG=debug gpop-daemon
 ```
 
 ### Command Line Options
@@ -39,6 +94,97 @@ RUST_LOG=debug ./target/release/gpop-rs
 |--------|-------|---------|-------------|
 | `--bind` | `-b` | `127.0.0.1` | IP address to bind to |
 | `--port` | `-p` | `9000` | Port to listen on |
+| `--pipeline` | `-P` | - | Initial pipeline(s) to create |
+| `--api-key` | - | - | API key for WebSocket authentication |
+| `--no-websocket` | - | - | Disable WebSocket interface |
+| `--no-dbus` | - | - | Disable DBus interface (Linux only) |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `GPOP_API_KEY` | API key for WebSocket authentication (alternative to `--api-key`) |
+| `RUST_LOG` | Log level (e.g., `debug`, `info`, `warn`, `error`) |
+
+## Authentication
+
+By default, the WebSocket server accepts connections from any client that can reach it. When binding to `127.0.0.1` (the default), only local processes can connect.
+
+For deployments where the server is exposed on a network or in multi-user environments, you can enable API key authentication:
+
+```bash
+# Via command line
+gpop-daemon --api-key mysecretkey
+
+# Via environment variable
+GPOP_API_KEY=mysecretkey gpop-daemon
+
+# Combined with network binding
+gpop-daemon --bind 0.0.0.0 --api-key mysecretkey
+```
+
+When authentication is enabled, clients must include the API key in the `Authorization` header during the WebSocket handshake:
+
+```
+Authorization: mysecretkey
+```
+
+### Authentication Responses
+
+| Scenario | HTTP Status |
+|----------|-------------|
+| No `--api-key` configured | Connection accepted (no auth required) |
+| Correct API key provided | Connection accepted |
+| Missing `Authorization` header | `401 Unauthorized` |
+| Invalid API key | `403 Forbidden` |
+
+### Client Examples
+
+**JavaScript (Browser/Node.js):**
+```javascript
+const ws = new WebSocket('ws://localhost:9000', {
+  headers: {
+    'Authorization': 'mysecretkey'
+  }
+});
+```
+
+**Python (websockets library):**
+```python
+import websockets
+
+async def connect():
+    async with websockets.connect(
+        'ws://localhost:9000',
+        extra_headers={'Authorization': 'mysecretkey'}
+    ) as ws:
+        await ws.send('{"id":"1","method":"list_pipelines","params":{}}')
+        print(await ws.recv())
+```
+
+**Rust (tokio-tungstenite):**
+```rust
+use tokio_tungstenite::tungstenite::http::Request;
+
+let request = Request::builder()
+    .uri("ws://localhost:9000")
+    .header("Authorization", "mysecretkey")
+    .body(())?;
+
+let (ws_stream, _) = connect_async(request).await?;
+```
+
+**curl (for testing handshake):**
+```bash
+# This will fail with 401 if auth is enabled and no key provided
+curl -i -N \
+  -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+  -H "Sec-WebSocket-Version: 13" \
+  -H "Authorization: mysecretkey" \
+  http://localhost:9000/
+```
 
 ## WebSocket API
 
@@ -156,7 +302,7 @@ Remove and destroy a pipeline.
 }
 ```
 
-#### `get_pipeline`
+#### `get_pipeline_info`
 
 Get information about a specific pipeline.
 
@@ -164,7 +310,7 @@ Get information about a specific pipeline.
 ```json
 {
   "id": "4",
-  "method": "get_pipeline",
+  "method": "get_pipeline_info",
   "params": {
     "pipeline_id": "0"
   }
@@ -232,6 +378,105 @@ Or with explicit pipeline ID:
   "method": "play",
   "params": {
     "pipeline_id": "0"
+  }
+}
+```
+
+#### `update_pipeline`
+
+Update an existing pipeline with a new description. The pipeline is stopped and replaced atomically.
+
+**Request:**
+```json
+{
+  "id": "7",
+  "method": "update_pipeline",
+  "params": {
+    "pipeline_id": "0",
+    "description": "videotestsrc pattern=ball ! autovideosink"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "id": "7",
+  "result": {
+    "success": true
+  }
+}
+```
+
+#### `get_position`
+
+Get the current position and duration of a pipeline. The `pipeline_id` parameter is optional and defaults to `"0"`.
+
+**Request:**
+```json
+{
+  "id": "8",
+  "method": "get_position",
+  "params": {}
+}
+```
+
+**Response:**
+```json
+{
+  "id": "8",
+  "result": {
+    "position_ns": 1500000000,
+    "duration_ns": 10000000000,
+    "progress": 0.15
+  }
+}
+```
+
+Note: `position_ns` and `duration_ns` are in nanoseconds. `progress` is a value between 0.0 and 1.0. Any of these fields may be `null` if not available (e.g., for live streams).
+
+#### `get_version`
+
+Get the daemon version.
+
+**Request:**
+```json
+{
+  "id": "9",
+  "method": "get_version",
+  "params": {}
+}
+```
+
+**Response:**
+```json
+{
+  "id": "9",
+  "result": {
+    "version": "1.0.0"
+  }
+}
+```
+
+#### `get_pipeline_count`
+
+Get the number of managed pipelines.
+
+**Request:**
+```json
+{
+  "id": "10",
+  "method": "get_pipeline_count",
+  "params": {}
+}
+```
+
+**Response:**
+```json
+{
+  "id": "10",
+  "result": {
+    "count": 3
   }
 }
 ```
@@ -369,16 +614,18 @@ cargo run --example ws_client -- ws://192.168.1.100:9000
 ### Client Commands
 
 ```
-list                     - List all pipelines
-create <description>     - Create a new pipeline
-remove <id>              - Remove a pipeline
-info <id>                - Get pipeline info
-play [id]                - Play a pipeline (default: 0)
-pause [id]               - Pause a pipeline (default: 0)
-stop [id]                - Stop a pipeline (default: 0)
-state <id> <state>       - Set pipeline state
-snapshot [id] [details]  - Get DOT graph (default: 0)
-quit                     - Exit
+list                        - List all pipelines
+create <description>        - Create a new pipeline
+update <id> <description>   - Update pipeline description
+remove <id>                 - Remove a pipeline
+info <id>                   - Get pipeline info
+play [id]                   - Play a pipeline (default: 0)
+pause [id]                  - Pause a pipeline (default: 0)
+stop [id]                   - Stop a pipeline (default: 0)
+state <id> <state>          - Set pipeline state
+position [id]               - Get pipeline position/duration (default: 0)
+snapshot [id] [details]     - Get DOT graph (default: 0)
+quit                        - Exit
 ```
 
 ### Example Session
@@ -450,6 +697,7 @@ On Linux, gpop-rs also exposes a DBus interface on the session bus.
 - `AddPipeline(description: string) -> string` - Create a pipeline, returns ID
 - `RemovePipeline(id: string)` - Remove a pipeline
 - `GetPipelineDesc(id: string) -> string` - Get pipeline description
+- `UpdatePipeline(id: string, description: string)` - Update pipeline description
 
 #### Properties
 
