@@ -42,6 +42,34 @@ fn test_request_deserialize_optional_params() {
 }
 
 #[test]
+fn test_request_missing_id_fails() {
+    // Per JSON-RPC 2.0, id is required for requests expecting a response
+    let json = r#"{"method":"list_pipelines"}"#;
+    let result: Result<Request, _> = serde_json::from_str(json);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_request_missing_method_fails() {
+    // Per JSON-RPC 2.0, method is required
+    let json = r#"{"id":"123"}"#;
+    let result: Result<Request, _> = serde_json::from_str(json);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_invalid_request_response() {
+    let response =
+        Response::invalid_request("123".to_string(), "Missing required field".to_string());
+
+    assert_eq!(response.id, "123");
+    assert!(response.error.is_some());
+
+    let error = response.error.unwrap();
+    assert_eq!(error.code, error_codes::INVALID_REQUEST);
+}
+
+#[test]
 fn test_response_success() {
     let response = Response::success(
         "123".to_string(),

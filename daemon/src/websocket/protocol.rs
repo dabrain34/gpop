@@ -45,26 +45,25 @@ pub mod error_codes {
 /// JSON-RPC 2.0 version string
 pub const JSONRPC_VERSION: &str = "2.0";
 
-fn default_request_id() -> String {
-    "0".to_string()
-}
-
-fn default_method() -> String {
-    "snapshot".to_string()
-}
-
 fn default_jsonrpc_version() -> String {
     JSONRPC_VERSION.to_string()
 }
 
+/// JSON-RPC 2.0 Request object.
+///
+/// Per the JSON-RPC 2.0 specification:
+/// - `id` is required for requests expecting a response
+/// - `method` is required and specifies the method to invoke
+/// - `jsonrpc` should be "2.0" (defaults if omitted for compatibility)
+/// - `params` is optional
 #[derive(Debug, Clone, Deserialize)]
 pub struct Request {
     /// JSON-RPC version (should be "2.0")
     #[serde(default = "default_jsonrpc_version")]
     pub jsonrpc: String,
-    #[serde(default = "default_request_id")]
+    /// Request identifier - required per JSON-RPC 2.0 spec
     pub id: String,
-    #[serde(default = "default_method")]
+    /// Method name to invoke - required per JSON-RPC 2.0 spec
     pub method: String,
     #[serde(default)]
     pub params: Value,
@@ -109,6 +108,11 @@ impl Response {
     /// Create a parse error response
     pub fn parse_error(id: String, message: String) -> Self {
         Self::error(id, error_codes::PARSE_ERROR, message)
+    }
+
+    /// Create an invalid request error response (missing required fields)
+    pub fn invalid_request(id: String, message: String) -> Self {
+        Self::error(id, error_codes::INVALID_REQUEST, message)
     }
 
     /// Create a method not found error response
