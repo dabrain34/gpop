@@ -7,13 +7,29 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::gst::{PipelineManager, PipelineState};
 
 use super::pipeline::*;
 use super::protocol::*;
 use super::DEFAULT_PIPELINE_ID;
+
+/// Safely convert a serializable value to a JSON Value.
+/// Returns an internal error response if serialization fails (should never happen for well-typed structs).
+fn to_json_value<T: serde::Serialize>(id: String, value: &T) -> Response {
+    match serde_json::to_value(value) {
+        Ok(v) => Response::success(id, v),
+        Err(e) => {
+            error!("JSON serialization failed: {}", e);
+            Response::error(
+                id,
+                error_codes::INTERNAL_ERROR,
+                "Internal serialization error".to_string(),
+            )
+        }
+    }
+}
 
 /// WebSocket interface for managing pipelines.
 /// This is the WebSocket equivalent of the DBus `ManagerInterface`.
@@ -53,7 +69,7 @@ impl ManagerInterface {
         let result = VersionResult {
             version: env!("CARGO_PKG_VERSION").to_string(),
         };
-        Response::success(id, serde_json::to_value(result).unwrap())
+        to_json_value(id, &result)
     }
 
     /// Get daemon and GStreamer version info
@@ -70,7 +86,7 @@ impl ManagerInterface {
     async fn get_pipeline_count(&self, id: String) -> Response {
         let count = self.manager.pipeline_count().await;
         let result = PipelineCountResult { count };
-        Response::success(id, serde_json::to_value(result).unwrap())
+        to_json_value(id, &result)
     }
 
     async fn list_pipelines(&self, id: String) -> Response {
@@ -86,7 +102,7 @@ impl ManagerInterface {
             .collect();
 
         let result = ListPipelinesResult { pipelines };
-        Response::success(id, serde_json::to_value(result).unwrap())
+        to_json_value(id, &result)
     }
 
     async fn create_pipeline(&self, request: Request) -> Response {
@@ -100,7 +116,7 @@ impl ManagerInterface {
         match self.manager.add_pipeline(&params.description).await {
             Ok(pipeline_id) => {
                 let result = PipelineCreatedResult { pipeline_id };
-                Response::success(request.id, serde_json::to_value(result).unwrap())
+                to_json_value(request.id, &result)
             }
             Err(e) => Response::from_gpop_error(request.id, &e),
         }
@@ -136,7 +152,7 @@ impl ManagerInterface {
                     state: info.state,
                     streaming: info.streaming,
                 };
-                Response::success(request.id, serde_json::to_value(result).unwrap())
+                to_json_value(request.id, &result)
             }
             Err(e) => Response::from_gpop_error(request.id, &e),
         }
@@ -158,7 +174,7 @@ impl ManagerInterface {
         match self.manager.set_state(&params.pipeline_id, state).await {
             Ok(()) => {
                 let result = SuccessResult { success: true };
-                Response::success(request.id, serde_json::to_value(result).unwrap())
+                to_json_value(request.id, &result)
             }
             Err(e) => Response::from_gpop_error(request.id, &e),
         }
@@ -168,12 +184,14 @@ impl ManagerInterface {
         let params: OptionalPipelineIdParams =
             serde_json::from_value(request.params).unwrap_or_default();
 
-        let pipeline_id = params.pipeline_id.unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
+        let pipeline_id = params
+            .pipeline_id
+            .unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
 
         match self.manager.play(&pipeline_id).await {
             Ok(()) => {
                 let result = SuccessResult { success: true };
-                Response::success(request.id, serde_json::to_value(result).unwrap())
+                to_json_value(request.id, &result)
             }
             Err(e) => Response::from_gpop_error(request.id, &e),
         }
@@ -183,12 +201,14 @@ impl ManagerInterface {
         let params: OptionalPipelineIdParams =
             serde_json::from_value(request.params).unwrap_or_default();
 
-        let pipeline_id = params.pipeline_id.unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
+        let pipeline_id = params
+            .pipeline_id
+            .unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
 
         match self.manager.pause(&pipeline_id).await {
             Ok(()) => {
                 let result = SuccessResult { success: true };
-                Response::success(request.id, serde_json::to_value(result).unwrap())
+                to_json_value(request.id, &result)
             }
             Err(e) => Response::from_gpop_error(request.id, &e),
         }
@@ -198,12 +218,14 @@ impl ManagerInterface {
         let params: OptionalPipelineIdParams =
             serde_json::from_value(request.params).unwrap_or_default();
 
-        let pipeline_id = params.pipeline_id.unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
+        let pipeline_id = params
+            .pipeline_id
+            .unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
 
         match self.manager.stop(&pipeline_id).await {
             Ok(()) => {
                 let result = SuccessResult { success: true };
-                Response::success(request.id, serde_json::to_value(result).unwrap())
+                to_json_value(request.id, &result)
             }
             Err(e) => Response::from_gpop_error(request.id, &e),
         }
@@ -235,12 +257,18 @@ impl ManagerInterface {
         let params: OptionalPipelineIdParams =
             serde_json::from_value(request.params).unwrap_or_default();
 
-        let pipeline_id = params.pipeline_id.unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
+        let pipeline_id = params
+            .pipeline_id
+            .unwrap_or_else(|| DEFAULT_PIPELINE_ID.to_string());
 
         match self.manager.get_position(&pipeline_id).await {
             Ok((position_ns, duration_ns)) => {
                 let progress = match (position_ns, duration_ns) {
-                    (Some(pos), Some(dur)) if dur > 0 => Some(pos as f64 / dur as f64),
+                    (Some(pos), Some(dur)) if dur > 0 => {
+                        // Clamp progress to 0.0..=1.0 range
+                        // (position can briefly exceed duration during seeks)
+                        Some((pos as f64 / dur as f64).clamp(0.0, 1.0))
+                    }
                     _ => None,
                 };
 
@@ -249,7 +277,7 @@ impl ManagerInterface {
                     duration_ns,
                     progress,
                 };
-                Response::success(request.id, serde_json::to_value(result).unwrap())
+                to_json_value(request.id, &result)
             }
             Err(e) => Response::from_gpop_error(request.id, &e),
         }
@@ -270,7 +298,7 @@ impl ManagerInterface {
         {
             Ok(()) => {
                 let result = SuccessResult { success: true };
-                Response::success(request.id, serde_json::to_value(result).unwrap())
+                to_json_value(request.id, &result)
             }
             Err(e) => Response::from_gpop_error(request.id, &e),
         }
