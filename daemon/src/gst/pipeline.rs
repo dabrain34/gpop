@@ -19,6 +19,42 @@ use crate::gst::event::{EventSender, PipelineEvent, PipelineState};
 /// Maximum length for pipeline descriptions to prevent memory exhaustion
 pub const MAX_PIPELINE_DESCRIPTION_LENGTH: usize = 64 * 1024; // 64KB
 
+/// Check if a GStreamer error indicates unsupported media (missing codec, format, etc.)
+/// Returns Some with a descriptive message if it's a media error, None otherwise.
+pub fn is_media_not_supported_error(error: &gst::glib::Error) -> Option<String> {
+    let message = error.message();
+    let msg_lower = message.to_lowercase();
+
+    // Check for common patterns in GStreamer error messages indicating media issues
+    // These patterns cover missing codecs, unsupported formats, and hardware limitations
+    let media_patterns = [
+        "no suitable",
+        "missing plugin",
+        "missing element",
+        "codec not found",
+        "could not determine type",
+        "unhandled",
+        "not supported",
+        "unsupported",
+        "no decoder",
+        "no encoder",
+        "no demuxer",
+        "no muxer",
+        "format not supported",
+        "caps not supported",
+        "not negotiated",
+        "stream type not supported",
+    ];
+
+    for pattern in &media_patterns {
+        if msg_lower.contains(pattern) {
+            return Some(message.to_string());
+        }
+    }
+
+    None
+}
+
 /// Timeout for state changes in seconds
 pub const STATE_CHANGE_TIMEOUT_SECS: u64 = 30;
 
@@ -54,7 +90,14 @@ impl Pipeline {
         // We don't call it here to avoid masking initialization errors.
 
         let pipeline = gst::parse::launch(description)
-            .map_err(|e| GpopError::InvalidPipeline(e.to_string()))?
+            .map_err(|e| {
+                // Check if this is a media-related error (missing codec, unsupported format, etc.)
+                if let Some(msg) = is_media_not_supported_error(&e) {
+                    GpopError::MediaNotSupported(msg)
+                } else {
+                    GpopError::InvalidPipeline(e.to_string())
+                }
+            })?
             .downcast::<gst::Pipeline>()
             .map_err(|_| GpopError::InvalidPipeline("Not a pipeline".to_string()))?;
 
@@ -94,7 +137,7 @@ impl Pipeline {
                 let shutdown_clone = Arc::clone(&shutdown_flag);
 
                 // Use spawn_blocking to avoid blocking the async runtime
-                let msg = tokio::task::spawn_blocking(move || {
+                let msg = match tokio::task::spawn_blocking(move || {
                     // Check shutdown flag again inside blocking context
                     if shutdown_clone.load(Ordering::Acquire) {
                         return None;
@@ -103,26 +146,45 @@ impl Pipeline {
                     bus_clone.timed_pop(timeout)
                 })
                 .await
-                .ok()
-                .flatten();
+                {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        // spawn_blocking panicked or was cancelled - log and continue
+                        warn!(
+                            "Bus watcher spawn_blocking failed for pipeline '{}': {}",
+                            id, e
+                        );
+                        continue;
+                    }
+                };
 
                 if let Some(msg) = msg {
                     match msg.view() {
                         gst::MessageView::Error(err) => {
-                            let error_msg = format!(
-                                "{}: {}",
-                                err.error(),
-                                err.debug().unwrap_or_default()
-                            );
-                            error!("Pipeline '{}' error: {}", id, error_msg);
-                            if event_tx
-                                .send(PipelineEvent::Error {
+                            let gst_error = err.error();
+                            let error_msg =
+                                format!("{}: {}", gst_error, err.debug().unwrap_or_default());
+
+                            // Check if this is a media-related error
+                            let event = if is_media_not_supported_error(&gst_error).is_some() {
+                                warn!("Pipeline '{}' unsupported media: {}", id, error_msg);
+                                PipelineEvent::Unsupported {
                                     pipeline_id: id.clone(),
                                     message: error_msg,
-                                })
-                                .is_err()
-                            {
-                                warn!("Failed to send error event for pipeline '{}': no receivers", id);
+                                }
+                            } else {
+                                error!("Pipeline '{}' error: {}", id, error_msg);
+                                PipelineEvent::Error {
+                                    pipeline_id: id.clone(),
+                                    message: error_msg,
+                                }
+                            };
+
+                            if event_tx.send(event).is_err() {
+                                warn!(
+                                    "Failed to send error event for pipeline '{}': no receivers",
+                                    id
+                                );
                             }
                         }
                         gst::MessageView::Warning(warning) => {
@@ -140,7 +202,10 @@ impl Pipeline {
                                 })
                                 .is_err()
                             {
-                                warn!("Failed to send EOS event for pipeline '{}': no receivers", id);
+                                warn!(
+                                    "Failed to send EOS event for pipeline '{}': no receivers",
+                                    id
+                                );
                             }
                         }
                         gst::MessageView::StateChanged(state_changed) => {
@@ -149,10 +214,7 @@ impl Pipeline {
                                 if src == p.pipeline.upcast_ref::<gst::Object>() {
                                     let old = PipelineState::from(state_changed.old());
                                     let new = PipelineState::from(state_changed.current());
-                                    debug!(
-                                        "Pipeline '{}' state changed: {} -> {}",
-                                        id, old, new
-                                    );
+                                    debug!("Pipeline '{}' state changed: {} -> {}", id, old, new);
                                     if event_tx
                                         .send(PipelineEvent::StateChanged {
                                             pipeline_id: id.clone(),

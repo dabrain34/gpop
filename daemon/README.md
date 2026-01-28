@@ -570,6 +570,20 @@ The server broadcasts events to all connected clients:
 }
 ```
 
+#### `unsupported`
+
+Emitted when a pipeline fails due to missing codec, unsupported format, or hardware limitation.
+
+```json
+{
+  "event": "unsupported",
+  "data": {
+    "pipeline_id": "0",
+    "message": "No decoder available for type 'video/x-h265'"
+  }
+}
+```
+
 #### `eos`
 ```json
 {
@@ -624,6 +638,7 @@ The server broadcasts events to all connected clients:
 | `-32001` | Pipeline creation failed |
 | `-32002` | State change failed |
 | `-32003` | GStreamer error |
+| `-32005` | Media not supported (missing codec, unsupported format, hardware limitation) |
 
 ## Example Client
 

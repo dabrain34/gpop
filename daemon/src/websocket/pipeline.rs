@@ -59,6 +59,17 @@ pub struct PipelineInfoResult {
     pub streaming: bool,
 }
 
+impl From<crate::gst::PipelineInfo> for PipelineInfoResult {
+    fn from(info: crate::gst::PipelineInfo) -> Self {
+        Self {
+            id: info.id,
+            description: info.description,
+            state: info.state,
+            streaming: info.streaming,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PipelineSnapshot {
     pub id: String,

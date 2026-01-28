@@ -7,12 +7,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{info, warn};
 
-use super::SHUTDOWN_GRACE_PERIOD_MS;
+use super::{MAX_PIPELINES, SHUTDOWN_GRACE_PERIOD_MS};
 use crate::error::{GpopError, Result};
 use crate::gst::event::{EventSender, PipelineEvent, PipelineState};
 use crate::gst::pipeline::Pipeline;
@@ -27,7 +27,7 @@ pub struct PipelineInfo {
 pub struct PipelineManager {
     pipelines: RwLock<HashMap<String, Arc<Mutex<Pipeline>>>>,
     event_tx: EventSender,
-    next_id: AtomicU32,
+    next_id: AtomicU64,
 }
 
 impl PipelineManager {
@@ -35,21 +35,26 @@ impl PipelineManager {
         Self {
             pipelines: RwLock::new(HashMap::new()),
             event_tx,
-            next_id: AtomicU32::new(0),
+            next_id: AtomicU64::new(0),
         }
     }
 
     pub async fn add_pipeline(&self, description: &str) -> Result<String> {
-        // Use Relaxed ordering - we only need uniqueness, not synchronization
-        let id_num = self.next_id.fetch_add(1, Ordering::Relaxed);
-
-        // Check for overflow (wrap-around to 0 after u32::MAX)
-        // In practice this is unlikely, but we handle it gracefully
-        if id_num == u32::MAX {
-            return Err(GpopError::InvalidPipeline(
-                "Pipeline ID counter overflow - too many pipelines created".to_string(),
-            ));
+        // Check pipeline limit before creating
+        {
+            let pipelines = self.pipelines.read().await;
+            if pipelines.len() >= MAX_PIPELINES {
+                return Err(GpopError::InvalidPipeline(format!(
+                    "Maximum number of pipelines ({}) reached",
+                    MAX_PIPELINES
+                )));
+            }
         }
+
+        // Use Relaxed ordering - we only need uniqueness, not synchronization
+        // Using u64 makes overflow practically impossible (would take millions of years
+        // at 1 billion pipelines per second)
+        let id_num = self.next_id.fetch_add(1, Ordering::Relaxed);
 
         let id = id_num.to_string();
 
@@ -59,9 +64,9 @@ impl PipelineManager {
         // Extract bus watch parameters synchronously to avoid race conditions
         let (bus, shutdown_flag) = {
             let p = pipeline.lock().await;
-            let bus = p.bus().ok_or_else(|| {
-                GpopError::InvalidPipeline("Pipeline has no bus".to_string())
-            })?;
+            let bus = p
+                .bus()
+                .ok_or_else(|| GpopError::InvalidPipeline("Pipeline has no bus".to_string()))?;
             (bus, p.shutdown_flag())
         };
 
@@ -224,9 +229,9 @@ impl PipelineManager {
         // Extract bus watch parameters for the new pipeline
         let (bus, shutdown_flag) = {
             let p = new_pipeline.lock().await;
-            let bus = p.bus().ok_or_else(|| {
-                GpopError::InvalidPipeline("Pipeline has no bus".to_string())
-            })?;
+            let bus = p
+                .bus()
+                .ok_or_else(|| GpopError::InvalidPipeline("Pipeline has no bus".to_string()))?;
             (bus, p.shutdown_flag())
         };
 

@@ -191,7 +191,10 @@ async fn test_events_emitted_on_add() {
 
     let event = rx.recv().await.unwrap();
     match event {
-        PipelineEvent::PipelineAdded { pipeline_id, description } => {
+        PipelineEvent::PipelineAdded {
+            pipeline_id,
+            description,
+        } => {
             // Pipeline IDs are sequential numeric strings
             assert!(!pipeline_id.is_empty());
             assert!(pipeline_id.chars().all(|c| c.is_ascii_digit()));

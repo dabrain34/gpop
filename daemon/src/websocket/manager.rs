@@ -91,15 +91,17 @@ impl ManagerInterface {
 
     async fn list_pipelines(&self, id: String) -> Response {
         let infos = self.manager.list_pipelines().await;
-        let pipelines: Vec<PipelineInfoResult> = infos
-            .into_iter()
-            .map(|info| PipelineInfoResult {
-                id: info.id,
-                description: info.description,
-                state: info.state,
-                streaming: info.streaming,
-            })
-            .collect();
+        let mut pipelines: Vec<PipelineInfoResult> =
+            infos.into_iter().map(PipelineInfoResult::from).collect();
+
+        // Sort by ID for deterministic ordering
+        pipelines.sort_by(|a, b| {
+            // Try numeric comparison first, fall back to string comparison
+            match (a.id.parse::<u64>(), b.id.parse::<u64>()) {
+                (Ok(a_num), Ok(b_num)) => a_num.cmp(&b_num),
+                _ => a.id.cmp(&b.id),
+            }
+        });
 
         let result = ListPipelinesResult { pipelines };
         to_json_value(id, &result)
@@ -146,12 +148,7 @@ impl ManagerInterface {
 
         match self.manager.get_pipeline_info(&params.pipeline_id).await {
             Ok(info) => {
-                let result = PipelineInfoResult {
-                    id: info.id,
-                    description: info.description,
-                    state: info.state,
-                    streaming: info.streaming,
-                };
+                let result = PipelineInfoResult::from(info);
                 to_json_value(request.id, &result)
             }
             Err(e) => Response::from_gpop_error(request.id, &e),

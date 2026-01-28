@@ -19,16 +19,40 @@ fn test_pipeline_state_display() {
 
 #[test]
 fn test_pipeline_state_from_str() {
-    assert_eq!("void_pending".parse::<PipelineState>().unwrap(), PipelineState::VoidPending);
-    assert_eq!("voidpending".parse::<PipelineState>().unwrap(), PipelineState::VoidPending);
-    assert_eq!("null".parse::<PipelineState>().unwrap(), PipelineState::Null);
-    assert_eq!("ready".parse::<PipelineState>().unwrap(), PipelineState::Ready);
-    assert_eq!("paused".parse::<PipelineState>().unwrap(), PipelineState::Paused);
-    assert_eq!("playing".parse::<PipelineState>().unwrap(), PipelineState::Playing);
+    assert_eq!(
+        "void_pending".parse::<PipelineState>().unwrap(),
+        PipelineState::VoidPending
+    );
+    assert_eq!(
+        "voidpending".parse::<PipelineState>().unwrap(),
+        PipelineState::VoidPending
+    );
+    assert_eq!(
+        "null".parse::<PipelineState>().unwrap(),
+        PipelineState::Null
+    );
+    assert_eq!(
+        "ready".parse::<PipelineState>().unwrap(),
+        PipelineState::Ready
+    );
+    assert_eq!(
+        "paused".parse::<PipelineState>().unwrap(),
+        PipelineState::Paused
+    );
+    assert_eq!(
+        "playing".parse::<PipelineState>().unwrap(),
+        PipelineState::Playing
+    );
 
     // Case insensitive
-    assert_eq!("PLAYING".parse::<PipelineState>().unwrap(), PipelineState::Playing);
-    assert_eq!("Playing".parse::<PipelineState>().unwrap(), PipelineState::Playing);
+    assert_eq!(
+        "PLAYING".parse::<PipelineState>().unwrap(),
+        PipelineState::Playing
+    );
+    assert_eq!(
+        "Playing".parse::<PipelineState>().unwrap(),
+        PipelineState::Playing
+    );
 }
 
 #[test]
@@ -39,17 +63,47 @@ fn test_pipeline_state_from_str_invalid() {
 
 #[test]
 fn test_pipeline_state_gstreamer_conversion() {
-    assert_eq!(PipelineState::from(gstreamer::State::VoidPending), PipelineState::VoidPending);
-    assert_eq!(PipelineState::from(gstreamer::State::Null), PipelineState::Null);
-    assert_eq!(PipelineState::from(gstreamer::State::Ready), PipelineState::Ready);
-    assert_eq!(PipelineState::from(gstreamer::State::Paused), PipelineState::Paused);
-    assert_eq!(PipelineState::from(gstreamer::State::Playing), PipelineState::Playing);
+    assert_eq!(
+        PipelineState::from(gstreamer::State::VoidPending),
+        PipelineState::VoidPending
+    );
+    assert_eq!(
+        PipelineState::from(gstreamer::State::Null),
+        PipelineState::Null
+    );
+    assert_eq!(
+        PipelineState::from(gstreamer::State::Ready),
+        PipelineState::Ready
+    );
+    assert_eq!(
+        PipelineState::from(gstreamer::State::Paused),
+        PipelineState::Paused
+    );
+    assert_eq!(
+        PipelineState::from(gstreamer::State::Playing),
+        PipelineState::Playing
+    );
 
-    assert_eq!(gstreamer::State::from(PipelineState::VoidPending), gstreamer::State::VoidPending);
-    assert_eq!(gstreamer::State::from(PipelineState::Null), gstreamer::State::Null);
-    assert_eq!(gstreamer::State::from(PipelineState::Ready), gstreamer::State::Ready);
-    assert_eq!(gstreamer::State::from(PipelineState::Paused), gstreamer::State::Paused);
-    assert_eq!(gstreamer::State::from(PipelineState::Playing), gstreamer::State::Playing);
+    assert_eq!(
+        gstreamer::State::from(PipelineState::VoidPending),
+        gstreamer::State::VoidPending
+    );
+    assert_eq!(
+        gstreamer::State::from(PipelineState::Null),
+        gstreamer::State::Null
+    );
+    assert_eq!(
+        gstreamer::State::from(PipelineState::Ready),
+        gstreamer::State::Ready
+    );
+    assert_eq!(
+        gstreamer::State::from(PipelineState::Paused),
+        gstreamer::State::Paused
+    );
+    assert_eq!(
+        gstreamer::State::from(PipelineState::Playing),
+        gstreamer::State::Playing
+    );
 }
 
 #[test]
@@ -77,6 +131,18 @@ fn test_pipeline_event_serialize_error() {
     let json = serde_json::to_string(&event).unwrap();
     assert!(json.contains("\"event\":\"error\""));
     assert!(json.contains("\"message\":\"Test error\""));
+}
+
+#[test]
+fn test_pipeline_event_serialize_unsupported() {
+    let event = PipelineEvent::Unsupported {
+        pipeline_id: "pipeline-0".to_string(),
+        message: "No decoder available for type 'video/x-h265'".to_string(),
+    };
+
+    let json = serde_json::to_string(&event).unwrap();
+    assert!(json.contains("\"event\":\"unsupported\""));
+    assert!(json.contains("\"message\":\"No decoder available"));
 }
 
 #[test]

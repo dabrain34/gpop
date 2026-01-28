@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
@@ -48,6 +49,8 @@ pub struct WebSocketServer {
     clients: ClientMap,
     api_key: Option<String>,
     allowed_origins: Option<Vec<String>>,
+    /// Counter for dropped events (client buffer full or disconnected)
+    dropped_events: Arc<AtomicU64>,
 }
 
 impl WebSocketServer {
@@ -63,7 +66,14 @@ impl WebSocketServer {
             clients: Arc::new(RwLock::new(HashMap::new())),
             api_key,
             allowed_origins,
+            dropped_events: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    /// Get the total number of events dropped due to slow clients or disconnections.
+    /// This counter is useful for monitoring and debugging.
+    pub fn dropped_event_count(&self) -> u64 {
+        self.dropped_events.load(Ordering::Relaxed)
     }
 
     pub async fn run(self, mut event_rx: EventReceiver) -> Result<()> {
@@ -74,6 +84,7 @@ impl WebSocketServer {
         let manager = Arc::clone(&self.manager);
         let api_key = self.api_key.clone();
         let allowed_origins = self.allowed_origins.clone();
+        let dropped_events = Arc::clone(&self.dropped_events);
 
         // Spawn event broadcaster
         let broadcast_clients = Arc::clone(&clients);
@@ -88,6 +99,7 @@ impl WebSocketServer {
                         for (addr, tx) in clients.iter() {
                             // Use try_send to avoid blocking; if buffer is full, client is slow
                             if tx.try_send(Message::Text(msg.clone().into())).is_err() {
+                                dropped_events.fetch_add(1, Ordering::Relaxed);
                                 debug!("Failed to send event to client {} (buffer full or disconnected)", addr);
                             }
                         }

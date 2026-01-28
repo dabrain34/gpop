@@ -17,6 +17,9 @@ pub use pipeline::Pipeline;
 /// Grace period in milliseconds to wait for bus watcher to shutdown
 pub const SHUTDOWN_GRACE_PERIOD_MS: u64 = 150;
 
+/// Maximum number of pipelines that can be created to prevent resource exhaustion
+pub const MAX_PIPELINES: usize = 100;
+
 #[cfg(test)]
 mod event_tests;
 

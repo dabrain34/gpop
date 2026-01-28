@@ -22,6 +22,9 @@ pub enum GpopError {
     #[error("State change failed: {0}")]
     StateChangeFailed(String),
 
+    #[error("Media not supported: {0}")]
+    MediaNotSupported(String),
+
     #[cfg(target_os = "linux")]
     #[error("DBus error: {0}")]
     DBus(#[from] zbus::Error),
