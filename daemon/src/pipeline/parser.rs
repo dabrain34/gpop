@@ -94,7 +94,7 @@ impl Pipeline {
                 let shutdown_clone = Arc::clone(&shutdown_flag);
 
                 // Use spawn_blocking to avoid blocking the async runtime
-                let msg = tokio::task::spawn_blocking(move || {
+                let msg = match tokio::task::spawn_blocking(move || {
                     // Check shutdown flag again inside blocking context
                     if shutdown_clone.load(Ordering::Acquire) {
                         return None;
@@ -103,17 +103,23 @@ impl Pipeline {
                     bus_clone.timed_pop(timeout)
                 })
                 .await
-                .ok()
-                .flatten();
+                {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        // spawn_blocking panicked or was cancelled - log and continue
+                        warn!(
+                            "Bus watcher spawn_blocking failed for pipeline '{}': {}",
+                            id, e
+                        );
+                        continue;
+                    }
+                };
 
                 if let Some(msg) = msg {
                     match msg.view() {
                         gst::MessageView::Error(err) => {
-                            let error_msg = format!(
-                                "{}: {}",
-                                err.error(),
-                                err.debug().unwrap_or_default()
-                            );
+                            let error_msg =
+                                format!("{}: {}", err.error(), err.debug().unwrap_or_default());
                             error!("Pipeline '{}' error: {}", id, error_msg);
                             if event_tx
                                 .send(PipelineEvent::Error {
@@ -122,7 +128,10 @@ impl Pipeline {
                                 })
                                 .is_err()
                             {
-                                warn!("Failed to send error event for pipeline '{}': no receivers", id);
+                                warn!(
+                                    "Failed to send error event for pipeline '{}': no receivers",
+                                    id
+                                );
                             }
                         }
                         gst::MessageView::Warning(warning) => {
@@ -140,7 +149,10 @@ impl Pipeline {
                                 })
                                 .is_err()
                             {
-                                warn!("Failed to send EOS event for pipeline '{}': no receivers", id);
+                                warn!(
+                                    "Failed to send EOS event for pipeline '{}': no receivers",
+                                    id
+                                );
                             }
                         }
                         gst::MessageView::StateChanged(state_changed) => {
@@ -149,10 +161,7 @@ impl Pipeline {
                                 if src == p.pipeline.upcast_ref::<gst::Object>() {
                                     let old = PipelineState::from(state_changed.old());
                                     let new = PipelineState::from(state_changed.current());
-                                    debug!(
-                                        "Pipeline '{}' state changed: {} -> {}",
-                                        id, old, new
-                                    );
+                                    debug!("Pipeline '{}' state changed: {} -> {}", id, old, new);
                                     if event_tx
                                         .send(PipelineEvent::StateChanged {
                                             pipeline_id: id.clone(),
