@@ -80,7 +80,10 @@ pub enum PipelineEvent {
         new_state: PipelineState,
     },
     #[serde(rename = "error")]
-    Error { pipeline_id: String, message: String },
+    Error {
+        pipeline_id: String,
+        message: String,
+    },
     #[serde(rename = "eos")]
     Eos { pipeline_id: String },
     #[serde(rename = "pipeline_added")]

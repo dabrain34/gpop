@@ -207,7 +207,10 @@ async fn test_events_emitted_on_add() {
 
     let event = rx.recv().await.unwrap();
     match event {
-        PipelineEvent::PipelineAdded { pipeline_id, description } => {
+        PipelineEvent::PipelineAdded {
+            pipeline_id,
+            description,
+        } => {
             // Pipeline IDs are sequential numeric strings
             assert!(!pipeline_id.is_empty());
             assert!(pipeline_id.chars().all(|c| c.is_ascii_digit()));
@@ -244,13 +247,22 @@ async fn test_update_pipeline() {
     let manager = PipelineManager::new(tx);
 
     let id = manager.add_pipeline("fakesrc ! fakesink").await.unwrap();
-    assert_eq!(manager.get_pipeline_description(&id).await.unwrap(), "fakesrc ! fakesink");
+    assert_eq!(
+        manager.get_pipeline_description(&id).await.unwrap(),
+        "fakesrc ! fakesink"
+    );
 
     // Update the pipeline with a new description
-    manager.update_pipeline(&id, "videotestsrc ! fakesink").await.unwrap();
+    manager
+        .update_pipeline(&id, "videotestsrc ! fakesink")
+        .await
+        .unwrap();
 
     // Verify the description changed but ID remains the same
-    assert_eq!(manager.get_pipeline_description(&id).await.unwrap(), "videotestsrc ! fakesink");
+    assert_eq!(
+        manager.get_pipeline_description(&id).await.unwrap(),
+        "videotestsrc ! fakesink"
+    );
     assert_eq!(manager.pipeline_count().await, 1);
 }
 
@@ -260,7 +272,9 @@ async fn test_update_pipeline_nonexistent() {
     let (tx, _rx) = create_event_channel();
     let manager = PipelineManager::new(tx);
 
-    let result = manager.update_pipeline("nonexistent", "fakesrc ! fakesink").await;
+    let result = manager
+        .update_pipeline("nonexistent", "fakesrc ! fakesink")
+        .await;
     assert!(result.is_err());
 }
 
@@ -273,11 +287,16 @@ async fn test_update_pipeline_invalid_description() {
     let id = manager.add_pipeline("fakesrc ! fakesink").await.unwrap();
 
     // Try to update with an invalid description
-    let result = manager.update_pipeline(&id, "invalid_element_xyz ! fakesink").await;
+    let result = manager
+        .update_pipeline(&id, "invalid_element_xyz ! fakesink")
+        .await;
     assert!(result.is_err());
 
     // Original pipeline should still be intact
-    assert_eq!(manager.get_pipeline_description(&id).await.unwrap(), "fakesrc ! fakesink");
+    assert_eq!(
+        manager.get_pipeline_description(&id).await.unwrap(),
+        "fakesrc ! fakesink"
+    );
     assert_eq!(manager.pipeline_count().await, 1);
 }
 
@@ -290,11 +309,17 @@ async fn test_update_pipeline_emits_event() {
     let id = manager.add_pipeline("fakesrc ! fakesink").await.unwrap();
     let _ = rx.recv().await; // Consume PipelineAdded event from add
 
-    manager.update_pipeline(&id, "videotestsrc ! fakesink").await.unwrap();
+    manager
+        .update_pipeline(&id, "videotestsrc ! fakesink")
+        .await
+        .unwrap();
 
     let event = rx.recv().await.unwrap();
     match event {
-        PipelineEvent::PipelineUpdated { pipeline_id, description } => {
+        PipelineEvent::PipelineUpdated {
+            pipeline_id,
+            description,
+        } => {
             assert_eq!(pipeline_id, id);
             assert_eq!(description, "videotestsrc ! fakesink");
         }

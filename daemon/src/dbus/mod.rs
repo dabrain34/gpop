@@ -44,7 +44,10 @@ impl DbusServer {
             .build()
             .await?;
 
-        info!("DBus server started on session bus as '{}'", DBUS_SERVICE_NAME);
+        info!(
+            "DBus server started on session bus as '{}'",
+            DBUS_SERVICE_NAME
+        );
 
         Ok(Self {
             connection,
@@ -99,9 +102,15 @@ impl DbusServer {
                 .remove::<PipelineInterface, _>(&path)
                 .await?;
 
-            info!("Unregistered pipeline '{}' from DBus path {:?}", pipeline_id, path);
+            info!(
+                "Unregistered pipeline '{}' from DBus path {:?}",
+                pipeline_id, path
+            );
         } else {
-            warn!("Attempted to unregister unknown pipeline '{}' from DBus", pipeline_id);
+            warn!(
+                "Attempted to unregister unknown pipeline '{}' from DBus",
+                pipeline_id
+            );
         }
 
         Ok(())
@@ -112,10 +121,7 @@ impl DbusServer {
     }
 }
 
-pub async fn run_dbus_event_forwarder(
-    dbus_server: Arc<DbusServer>,
-    mut event_rx: EventReceiver,
-) {
+pub async fn run_dbus_event_forwarder(dbus_server: Arc<DbusServer>, mut event_rx: EventReceiver) {
     loop {
         match event_rx.recv().await {
             Ok(event) => match event {
