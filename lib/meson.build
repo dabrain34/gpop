@@ -4,15 +4,21 @@ src = ['src/gpop-main.c'
 	   , 'src/gpop-manager.c'
 	   , 'src/gpop-pipeline.c'
 	   , 'src/gpop-parser.c'
+	   , 'src/gpop-client.c'
 	   ]
 
-inc = [ 'src/gpop-main.h']
+inc = [ 'src/gpop-main.h', 'src/gpop-client.h']
+
+soup_dep = dependency('libsoup-3.0', version: '>= 3.0', required: true)
+json_dep = dependency('json-glib-1.0', version: '>= 1.0', required: true)
 
 libgpop_dependencies = [
   glib_dep,
   gobject_dep,
   gio_dep,
   gst_dep,
+  soup_dep,
+  json_dep,
 ]
 
 libgpop = library('libgpop'

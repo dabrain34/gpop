@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2020 Stéphane Cerveau
  *
- * SPDX-License-Identifier: LGPL
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -145,7 +145,8 @@ gpop_pipeline_new (GPOPManager * manager, GDBusConnection * connection,
   if (!gpop_dbus_interface_register (GPOP_DBUS_INTERFACE (pipeline),
           object_path, gpop_pipeline_xml_introspection, connection)) {
       g_object_unref (pipeline);
-      pipeline = NULL;
+      g_free (object_path);
+      return NULL;
   }
 
   pipeline->parser = gpop_parser_new ();

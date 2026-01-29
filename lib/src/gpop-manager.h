@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2020 Stéphane Cerveau
  *
- * SPDX-License-Identifier: LGPL
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -50,7 +50,7 @@ struct _GPOPManagerClass
 };
 
 GPOPManager* gpop_manager_new (GDBusConnection* connection);
-void gpop_manage_free (GPOPManager * manager);
+void gpop_manager_free (GPOPManager * manager);
 
 void gpop_manager_add_pipeline (GPOPManager* manager, guint num, const gchar * parser_desc, gchar* id);
 void gpop_manager_remove_pipeline (GPOPManager * manager, gchar* id);

@@ -24,7 +24,7 @@ root_inc = include_directories('.')
 
 subdir('lib')
 
-if get_option('c_client')
+if get_option('cclient')
   subdir('client/c')
 endif
 

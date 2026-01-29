@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2020 Stéphane Cerveau
  *
- * SPDX-License-Identifier: LGPL
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -89,16 +89,17 @@ gpop_manager_dbus_method_call (GDBusConnection * connection,
     } else
       ret = g_variant_new ("(s)", "");
   } else if (!g_strcmp0 (method_name, "AddPipeline")) {
-
     gchar *parser_desc;
     g_variant_get (parameters, "(s)", &parser_desc);
     gpop_manager_add_pipeline (manager, gpop_manager_pipelines_count (manager),
         parser_desc, NULL);
+    g_free (parser_desc);
   } else if (!g_strcmp0 (method_name, "RemovePipeline")) {
-      gchar *id;
-      g_variant_get (parameters, "(s)", &id);
-      gpop_manager_remove_pipeline (manager, id);
-    }
+    gchar *id;
+    g_variant_get (parameters, "(s)", &id);
+    gpop_manager_remove_pipeline (manager, id);
+    g_free (id);
+  }
 
   g_dbus_method_invocation_return_value (invocation, ret);
   g_dbus_connection_flush (connection, NULL, NULL, NULL);
@@ -180,7 +181,7 @@ gpop_manager_new (GDBusConnection * connection)
 }
 
 void
-gpop_manage_free (GPOPManager * manager)
+gpop_manager_free (GPOPManager * manager)
 {
   g_clear_object (&manager);
 }
@@ -210,10 +211,11 @@ gpop_manager_add_pipeline (GPOPManager * manager, guint num, const gchar * parse
 void
 gpop_manager_remove_pipeline (GPOPManager * manager, gchar* id)
 {
-  GPOPPipeline *pipeline =gpop_manager_get_pipeline_by_id(manager, id);
+  GPOPPipeline *pipeline = gpop_manager_get_pipeline_by_id (manager, id);
   if (!pipeline) {
-    GPOP_LOG ("pipeline with id %s does not exists", id);
+    GPOP_LOG ("pipeline with id %s does not exist", id);
+    return;
   }
-  manager->pipelines = g_list_remove(manager->pipelines, pipeline);
+  manager->pipelines = g_list_remove (manager->pipelines, pipeline);
   gpop_pipeline_free (pipeline);
 }
