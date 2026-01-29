@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2020 Stéphane Cerveau
  *
- * SPDX-License-Identifier: LGPL
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -226,6 +226,7 @@ gpop_parser_class_init (GPOPParserClass * klass)
           state_changed), NULL, NULL, g_cclosure_marshal_VOID__INT,
       G_TYPE_NONE, 1, G_TYPE_INT);
 
+  GST_DEBUG_CATEGORY_INIT (gpop_debug, "gpop", 0, "gpop-parser");
 }
 
 static void
@@ -236,11 +237,7 @@ gpop_parser_init (GPOPParser * parser)
 GPOPParser *
 gpop_parser_new ()
 {
-  GPOPParser *parser = g_object_new (GPOP_TYPE_PARSER, NULL);
-
-  GST_DEBUG_CATEGORY_INIT (gpop_debug, "gpop", 0, "gpop-parser");
-
-  return parser;
+  return g_object_new (GPOP_TYPE_PARSER, NULL);
 }
 
 void
@@ -309,7 +306,7 @@ gpop_parser_quit (GPOPParser * parser)
 gboolean
 gpop_parser_is_playing (GPOPParser * parser)
 {
-  return (parser->state > GST_STATE_PLAYING);
+  return (parser->state == GST_STATE_PLAYING);
 }
 
 gboolean
