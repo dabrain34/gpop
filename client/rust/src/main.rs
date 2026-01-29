@@ -7,8 +7,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use futures_util::{SinkExt, StreamExt};
+use rustyline::error::ReadlineError;
+use rustyline::DefaultEditor;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 #[derive(Debug, Serialize)]
@@ -43,6 +46,144 @@ fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+fn print_help() {
+    println!("\nAvailable commands:");
+    println!("  list                     - List all pipelines");
+    println!("  create <description>     - Create a new pipeline");
+    println!("  update <id> <description> - Update pipeline description");
+    println!("  remove <id>              - Remove a pipeline");
+    println!("  info <id>                - Get pipeline info");
+    println!("  play [id]                - Play a pipeline");
+    println!("  pause [id]               - Pause a pipeline");
+    println!("  stop [id]                - Stop a pipeline");
+    println!("  state <id> <state>       - Set pipeline state");
+    println!("  snapshot <id> [details]  - Get DOT graph (details: media, caps, states, all)");
+    println!("  position [id]            - Get pipeline position/duration (default: 0)");
+    println!("  version                  - Get daemon version");
+    println!("  sysinfo                  - Get daemon and GStreamer info");
+    println!("  count                    - Get pipeline count");
+    println!("  help                     - Show this help");
+    println!("  quit                     - Exit");
+    println!();
+}
+
+fn parse_command(line: &str) -> Option<Request> {
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    match parts[0] {
+        "list" => Some(Request {
+            id: new_id(),
+            method: "list_pipelines".to_string(),
+            params: serde_json::json!({}),
+        }),
+        "create" if parts.len() > 1 => Some(Request {
+            id: new_id(),
+            method: "create_pipeline".to_string(),
+            params: serde_json::json!({
+                "description": parts[1..].join(" ")
+            }),
+        }),
+        "update" if parts.len() > 2 => Some(Request {
+            id: new_id(),
+            method: "update_pipeline".to_string(),
+            params: serde_json::json!({
+                "pipeline_id": parts[1],
+                "description": parts[2..].join(" ")
+            }),
+        }),
+        "remove" if parts.len() == 2 => Some(Request {
+            id: new_id(),
+            method: "remove_pipeline".to_string(),
+            params: serde_json::json!({
+                "pipeline_id": parts[1]
+            }),
+        }),
+        "info" if parts.len() == 2 => Some(Request {
+            id: new_id(),
+            method: "get_pipeline_info".to_string(),
+            params: serde_json::json!({
+                "pipeline_id": parts[1]
+            }),
+        }),
+        "play" => Some(Request {
+            id: new_id(),
+            method: "play".to_string(),
+            params: serde_json::json!({
+                "pipeline_id": parts.get(1).copied()
+            }),
+        }),
+        "pause" => Some(Request {
+            id: new_id(),
+            method: "pause".to_string(),
+            params: serde_json::json!({
+                "pipeline_id": parts.get(1).copied()
+            }),
+        }),
+        "stop" => Some(Request {
+            id: new_id(),
+            method: "stop".to_string(),
+            params: serde_json::json!({
+                "pipeline_id": parts.get(1).copied()
+            }),
+        }),
+        "state" if parts.len() == 3 => Some(Request {
+            id: new_id(),
+            method: "set_state".to_string(),
+            params: serde_json::json!({
+                "pipeline_id": parts[1],
+                "state": parts[2]
+            }),
+        }),
+        "snapshot" if parts.len() >= 2 => Some(Request {
+            id: new_id(),
+            method: "snapshot".to_string(),
+            params: serde_json::json!({
+                "pipeline_id": parts[1],
+                "details": parts.get(2).copied()
+            }),
+        }),
+        "position" => Some(Request {
+            id: new_id(),
+            method: "get_position".to_string(),
+            params: serde_json::json!({
+                "pipeline_id": parts.get(1).copied()
+            }),
+        }),
+        "version" => Some(Request {
+            id: new_id(),
+            method: "get_version".to_string(),
+            params: serde_json::json!({}),
+        }),
+        "sysinfo" => Some(Request {
+            id: new_id(),
+            method: "get_info".to_string(),
+            params: serde_json::json!({}),
+        }),
+        "count" => Some(Request {
+            id: new_id(),
+            method: "get_pipeline_count".to_string(),
+            params: serde_json::json!({}),
+        }),
+        "help" => {
+            print_help();
+            None
+        }
+        _ => {
+            println!("Unknown command or missing arguments. Type 'help' for available commands.");
+            None
+        }
+    }
+}
+
+enum InputEvent {
+    Line(String),
+    Quit,
+    Error(String),
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let url = std::env::args()
@@ -56,7 +197,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (mut write, mut read) = ws_stream.split();
 
-    // Spawn a task to read messages
+    // Channel for sending commands from readline thread to async task
+    let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel::<InputEvent>();
+
+    // Spawn readline in a separate thread (rustyline is synchronous)
+    let readline_handle = std::thread::spawn(move || {
+        let mut rl = match DefaultEditor::new() {
+            Ok(rl) => rl,
+            Err(e) => {
+                let _ = cmd_tx.send(InputEvent::Error(format!("Failed to create editor: {}", e)));
+                return;
+            }
+        };
+
+        loop {
+            match rl.readline("> ") {
+                Ok(line) => {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        let _ = rl.add_history_entry(trimmed);
+                    }
+                    if trimmed == "quit" || trimmed == "exit" {
+                        let _ = cmd_tx.send(InputEvent::Quit);
+                        break;
+                    }
+                    if cmd_tx.send(InputEvent::Line(line)).is_err() {
+                        break;
+                    }
+                }
+                Err(ReadlineError::Interrupted) => {
+                    println!("^C");
+                    let _ = cmd_tx.send(InputEvent::Quit);
+                    break;
+                }
+                Err(ReadlineError::Eof) => {
+                    let _ = cmd_tx.send(InputEvent::Quit);
+                    break;
+                }
+                Err(e) => {
+                    let _ = cmd_tx.send(InputEvent::Error(format!("Readline error: {}", e)));
+                    break;
+                }
+            }
+        }
+    });
+
+    // Spawn a task to read messages from WebSocket
     let read_task = tokio::spawn(async move {
         while let Some(msg) = read.next().await {
             match msg {
@@ -94,136 +280,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Interactive command loop
-    println!("\nAvailable commands:");
-    println!("  list                     - List all pipelines");
-    println!("  create <description>     - Create a new pipeline");
-    println!("  update <id> <description> - Update pipeline description");
-    println!("  remove <id>              - Remove a pipeline");
-    println!("  info <id>                - Get pipeline info");
-    println!("  play <id>                - Play a pipeline");
-    println!("  pause <id>               - Pause a pipeline");
-    println!("  stop <id>                - Stop a pipeline");
-    println!("  state <id> <state>       - Set pipeline state");
-    println!("  dot <id> [details]       - Get DOT graph (details: media, caps, states, all)");
-    println!("  position [id]            - Get pipeline position/duration (default: 0)");
-    println!("  quit                     - Exit");
-    println!();
+    print_help();
 
-    let stdin = tokio::io::stdin();
-    let mut reader = tokio::io::BufReader::new(stdin);
-
+    // Main command loop
     loop {
-        use tokio::io::AsyncBufReadExt;
-
-        print!("> ");
-        use std::io::Write;
-        std::io::stdout().flush()?;
-
-        let mut line = String::new();
-        if reader.read_line(&mut line).await? == 0 {
-            break;
-        }
-
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.is_empty() {
-            continue;
-        }
-
-        let request = match parts[0] {
-            "list" => Request {
-                id: new_id(),
-                method: "list_pipelines".to_string(),
-                params: serde_json::json!({}),
-            },
-            "create" if parts.len() > 1 => Request {
-                id: new_id(),
-                method: "create_pipeline".to_string(),
-                params: serde_json::json!({
-                    "description": parts[1..].join(" ")
-                }),
-            },
-            "update" if parts.len() > 2 => Request {
-                id: new_id(),
-                method: "update_pipeline".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts[1],
-                    "description": parts[2..].join(" ")
-                }),
-            },
-            "remove" if parts.len() == 2 => Request {
-                id: new_id(),
-                method: "remove_pipeline".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts[1]
-                }),
-            },
-            "info" if parts.len() == 2 => Request {
-                id: new_id(),
-                method: "get_pipeline_info".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts[1]
-                }),
-            },
-            "play" if parts.len() == 2 => Request {
-                id: new_id(),
-                method: "play".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts[1]
-                }),
-            },
-            "pause" if parts.len() == 2 => Request {
-                id: new_id(),
-                method: "pause".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts[1]
-                }),
-            },
-            "stop" if parts.len() == 2 => Request {
-                id: new_id(),
-                method: "stop".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts[1]
-                }),
-            },
-            "state" if parts.len() == 3 => Request {
-                id: new_id(),
-                method: "set_state".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts[1],
-                    "state": parts[2]
-                }),
-            },
-            "dot" if parts.len() >= 2 => Request {
-                id: new_id(),
-                method: "snapshot".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts[1],
-                    "details": parts.get(2).copied()
-                }),
-            },
-            "position" => Request {
-                id: new_id(),
-                method: "get_position".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts.get(1).copied()
-                }),
-            },
-            "quit" | "exit" => {
+        tokio::select! {
+            Some(event) = cmd_rx.recv() => {
+                match event {
+                    InputEvent::Line(line) => {
+                        let trimmed = line.trim();
+                        if let Some(request) = parse_command(trimmed) {
+                            let msg = serde_json::to_string(&request)?;
+                            println!("Sending: {}", msg);
+                            write.send(Message::Text(msg.into())).await?;
+                        }
+                    }
+                    InputEvent::Quit => {
+                        break;
+                    }
+                    InputEvent::Error(e) => {
+                        eprintln!("{}", e);
+                        break;
+                    }
+                }
+            }
+            else => {
                 break;
             }
-            _ => {
-                println!("Unknown command or missing arguments");
-                continue;
-            }
-        };
-
-        let msg = serde_json::to_string(&request)?;
-        println!("Sending: {}", msg);
-        write.send(Message::Text(msg.into())).await?;
+        }
     }
 
     read_task.abort();
+    let _ = readline_handle.join();
     println!("Goodbye!");
     Ok(())
 }

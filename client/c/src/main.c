@@ -24,15 +24,15 @@
 #include <json-glib/json-glib.h>
 #include <string.h>
 #include <stdio.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 
-#define DEFAULT_URL "ws://127.0.0.1:8444"
+#define DEFAULT_URL "ws://127.0.0.1:9000"
 
 typedef struct {
     GMainLoop *loop;
     SoupSession *session;
     SoupWebsocketConnection *ws;
-    GIOChannel *stdin_channel;
-    guint stdin_watch_id;
     gchar *url;
     gboolean connected;
 } GpopClient;
@@ -135,8 +135,8 @@ handle_event (JsonObject *root)
     JsonNode *data_node = json_object_get_member (root, "data");
 
     gchar *data_str = json_to_pretty_string (data_node);
-    g_print ("\n[EVENT] %s: %s\n> ", event_type, data_str);
-    fflush (stdout);
+    g_print ("\n[EVENT] %s: %s\n", event_type, data_str);
+    rl_forced_update_display ();
     g_free (data_str);
 }
 
@@ -149,14 +149,14 @@ handle_response (JsonObject *root)
         JsonObject *error = json_object_get_object_member (root, "error");
         gint64 code = json_object_get_int_member (error, "code");
         const gchar *message = json_object_get_string_member (error, "message");
-        g_print ("\n[ERROR] id=%s: %s (code: %" G_GINT64_FORMAT ")\n> ", id, message, code);
+        g_print ("\n[ERROR] id=%s: %s (code: %" G_GINT64_FORMAT ")\n", id, message, code);
     } else if (json_object_has_member (root, "result")) {
         JsonNode *result_node = json_object_get_member (root, "result");
         gchar *result_str = json_to_pretty_string (result_node);
-        g_print ("\n[RESPONSE] id=%s: %s\n> ", id, result_str);
+        g_print ("\n[RESPONSE] id=%s: %s\n", id, result_str);
         g_free (result_str);
     }
-    fflush (stdout);
+    rl_forced_update_display ();
 }
 
 static void
@@ -166,8 +166,8 @@ process_message (const gchar *text)
     GError *error = NULL;
 
     if (!json_parser_load_from_data (parser, text, -1, &error)) {
-        g_print ("\n[RAW] %s\n> ", text);
-        fflush (stdout);
+        g_print ("\n[RAW] %s\n", text);
+        rl_forced_update_display ();
         g_error_free (error);
         g_object_unref (parser);
         return;
@@ -181,8 +181,8 @@ process_message (const gchar *text)
     } else if (json_object_has_member (root, "id")) {
         handle_response (root);
     } else {
-        g_print ("\n[RAW] %s\n> ", text);
-        fflush (stdout);
+        g_print ("\n[RAW] %s\n", text);
+        rl_forced_update_display ();
     }
 
     g_object_unref (parser);
@@ -301,7 +301,7 @@ build_position_params (const gchar *id)
     return params;
 }
 
-static void
+static gboolean
 process_command (GpopClient *c, const gchar *line)
 {
     gchar **parts = g_strsplit (line, " ", -1);
@@ -309,7 +309,7 @@ process_command (GpopClient *c, const gchar *line)
 
     if (argc == 0 || strlen (parts[0]) == 0) {
         g_strfreev (parts);
-        return;
+        return TRUE;
     }
 
     const gchar *cmd = parts[0];
@@ -381,14 +381,41 @@ process_command (GpopClient *c, const gchar *line)
         print_help ();
     }
     else if (g_strcmp0 (cmd, "quit") == 0 || g_strcmp0 (cmd, "exit") == 0) {
-        g_print ("Goodbye!\n");
-        g_main_loop_quit (c->loop);
+        g_strfreev (parts);
+        return FALSE;
     }
     else {
         g_print ("Unknown command or missing arguments. Type 'help' for available commands.\n");
     }
 
     g_strfreev (parts);
+    return TRUE;
+}
+
+static void
+readline_handler (char *line)
+{
+    if (line == NULL) {
+        /* EOF (Ctrl+D) */
+        g_print ("\nGoodbye!\n");
+        g_main_loop_quit (client->loop);
+        return;
+    }
+
+    g_strstrip (line);
+
+    if (strlen (line) > 0) {
+        add_history (line);
+
+        if (!process_command (client, line)) {
+            g_print ("Goodbye!\n");
+            free (line);
+            g_main_loop_quit (client->loop);
+            return;
+        }
+    }
+
+    free (line);
 }
 
 static gboolean
@@ -396,55 +423,20 @@ on_stdin_ready (GIOChannel *source,
                 GIOCondition condition,
                 gpointer user_data)
 {
-    GpopClient *c = (GpopClient *) user_data;
+    (void) source;
+    (void) user_data;
+
+    if (condition & G_IO_IN) {
+        rl_callback_read_char ();
+    }
 
     if (condition & G_IO_HUP) {
         g_print ("\nGoodbye!\n");
-        g_main_loop_quit (c->loop);
+        g_main_loop_quit (client->loop);
         return FALSE;
-    }
-
-    gchar *line = NULL;
-    gsize len;
-    GError *error = NULL;
-    GIOStatus status = g_io_channel_read_line (source, &line, &len, NULL, &error);
-
-    if (status == G_IO_STATUS_NORMAL && line) {
-        g_strstrip (line);
-        if (strlen (line) > 0) {
-            process_command (c, line);
-        }
-        g_print ("> ");
-        fflush (stdout);
-        g_free (line);
-    } else if (status == G_IO_STATUS_EOF) {
-        g_print ("\nGoodbye!\n");
-        g_main_loop_quit (c->loop);
-        return FALSE;
-    } else if (error) {
-        g_printerr ("Error reading stdin: %s\n", error->message);
-        g_error_free (error);
     }
 
     return TRUE;
-}
-
-static void
-setup_stdin (GpopClient *c)
-{
-#ifdef G_OS_UNIX
-    c->stdin_channel = g_io_channel_unix_new (fileno (stdin));
-#else
-    c->stdin_channel = g_io_channel_win32_new_fd (fileno (stdin));
-#endif
-
-    g_io_channel_set_encoding (c->stdin_channel, NULL, NULL);
-    g_io_channel_set_buffered (c->stdin_channel, TRUE);
-
-    c->stdin_watch_id = g_io_add_watch (c->stdin_channel,
-                                         G_IO_IN | G_IO_HUP,
-                                         on_stdin_ready,
-                                         c);
 }
 
 static void
@@ -477,10 +469,14 @@ on_websocket_connected (GObject *source,
                       G_CALLBACK (on_websocket_error), c);
 
     print_help ();
-    g_print ("> ");
-    fflush (stdout);
 
-    setup_stdin (c);
+    /* Setup readline with callback interface for GLib integration */
+    rl_callback_handler_install ("> ", readline_handler);
+
+    /* Watch stdin for input */
+    GIOChannel *stdin_channel = g_io_channel_unix_new (fileno (stdin));
+    g_io_add_watch (stdin_channel, G_IO_IN | G_IO_HUP, on_stdin_ready, c);
+    g_io_channel_unref (stdin_channel);
 }
 
 static void
@@ -515,8 +511,6 @@ gpop_client_new (const gchar *url)
     c->url = g_strdup (url);
     c->connected = FALSE;
     c->ws = NULL;
-    c->stdin_channel = NULL;
-    c->stdin_watch_id = 0;
 
     return c;
 }
@@ -526,13 +520,11 @@ gpop_client_free (GpopClient *c)
 {
     if (!c) return;
 
-    if (c->stdin_watch_id > 0) {
-        g_source_remove (c->stdin_watch_id);
-    }
+    /* Remove readline callback handler */
+    rl_callback_handler_remove ();
 
-    if (c->stdin_channel) {
-        g_io_channel_unref (c->stdin_channel);
-    }
+    /* Clear in-memory history */
+    clear_history ();
 
     if (c->ws) {
         if (soup_websocket_connection_get_state (c->ws) == SOUP_WEBSOCKET_STATE_OPEN) {
