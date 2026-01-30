@@ -96,16 +96,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Interactive command loop
     println!("\nAvailable commands:");
-    println!("  list                     - List all pipelines");
-    println!("  create <description>     - Create a new pipeline");
-    println!("  remove <id>              - Remove a pipeline");
-    println!("  info <id>                - Get pipeline info");
-    println!("  play <id>                - Play a pipeline");
-    println!("  pause <id>               - Pause a pipeline");
-    println!("  stop <id>                - Stop a pipeline");
-    println!("  state <id> <state>       - Set pipeline state");
-    println!("  dot <id> [details]       - Get DOT graph (details: media, caps, states, all)");
-    println!("  quit                     - Exit");
+    println!("  list                        - List all pipelines");
+    println!("  create <description>        - Create a new pipeline");
+    println!("  update <id> <description>   - Update pipeline description");
+    println!("  remove <id>                 - Remove a pipeline");
+    println!("  info <id>                   - Get pipeline info");
+    println!("  play [id]                   - Play a pipeline (default: 0)");
+    println!("  pause [id]                  - Pause a pipeline (default: 0)");
+    println!("  stop [id]                   - Stop a pipeline (default: 0)");
+    println!("  state <id> <state>          - Set pipeline state");
+    println!("  position [id]               - Get pipeline position/duration (default: 0)");
+    println!("  snapshot [id] [details]     - Get DOT graph (default: 0)");
+    println!("  version                     - Get daemon version");
+    println!("  count                       - Get pipeline count");
+    println!("  quit                        - Exit");
     println!();
 
     let stdin = tokio::io::stdin();
@@ -141,6 +145,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "description": parts[1..].join(" ")
                 }),
             },
+            "update" if parts.len() > 2 => Request {
+                id: new_id(),
+                method: "update_pipeline".to_string(),
+                params: serde_json::json!({
+                    "pipeline_id": parts[1],
+                    "description": parts[2..].join(" ")
+                }),
+            },
             "remove" if parts.len() == 2 => Request {
                 id: new_id(),
                 method: "remove_pipeline".to_string(),
@@ -155,26 +167,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "pipeline_id": parts[1]
                 }),
             },
-            "play" if parts.len() == 2 => Request {
+            "play" => Request {
                 id: new_id(),
                 method: "play".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts[1]
-                }),
+                params: if parts.len() >= 2 {
+                    serde_json::json!({ "pipeline_id": parts[1] })
+                } else {
+                    serde_json::json!({})
+                },
             },
-            "pause" if parts.len() == 2 => Request {
+            "pause" => Request {
                 id: new_id(),
                 method: "pause".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts[1]
-                }),
+                params: if parts.len() >= 2 {
+                    serde_json::json!({ "pipeline_id": parts[1] })
+                } else {
+                    serde_json::json!({})
+                },
             },
-            "stop" if parts.len() == 2 => Request {
+            "stop" => Request {
                 id: new_id(),
                 method: "stop".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts[1]
-                }),
+                params: if parts.len() >= 2 {
+                    serde_json::json!({ "pipeline_id": parts[1] })
+                } else {
+                    serde_json::json!({})
+                },
             },
             "state" if parts.len() == 3 => Request {
                 id: new_id(),
@@ -184,13 +202,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "state": parts[2]
                 }),
             },
-            "dot" if parts.len() >= 2 => Request {
+            "snapshot" => Request {
                 id: new_id(),
-                method: "get_dot".to_string(),
-                params: serde_json::json!({
-                    "pipeline_id": parts[1],
-                    "details": parts.get(2).copied()
-                }),
+                method: "snapshot".to_string(),
+                params: if parts.len() >= 3 {
+                    serde_json::json!({
+                        "pipeline_id": parts[1],
+                        "details": parts[2]
+                    })
+                } else if parts.len() == 2 {
+                    serde_json::json!({ "pipeline_id": parts[1] })
+                } else {
+                    serde_json::json!({})
+                },
+            },
+            "position" => Request {
+                id: new_id(),
+                method: "get_position".to_string(),
+                params: if parts.len() >= 2 {
+                    serde_json::json!({ "pipeline_id": parts[1] })
+                } else {
+                    serde_json::json!({})
+                },
+            },
+            "version" => Request {
+                id: new_id(),
+                method: "get_version".to_string(),
+                params: serde_json::json!({}),
+            },
+            "count" => Request {
+                id: new_id(),
+                method: "get_pipeline_count".to_string(),
+                params: serde_json::json!({}),
             },
             "quit" | "exit" => {
                 break;
