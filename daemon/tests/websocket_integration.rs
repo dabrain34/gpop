@@ -135,6 +135,7 @@ mod protocol_validation_tests {
         assert!(error_codes::PIPELINE_CREATION_FAILED < 0);
         assert!(error_codes::STATE_CHANGE_FAILED < 0);
         assert!(error_codes::GSTREAMER_ERROR < 0);
+        assert!(error_codes::MEDIA_NOT_SUPPORTED < 0);
     }
 
     #[test]
@@ -146,6 +147,7 @@ mod protocol_validation_tests {
             error_codes::STATE_CHANGE_FAILED,
             error_codes::GSTREAMER_ERROR,
             error_codes::DESCRIPTION_TOO_LONG,
+            error_codes::MEDIA_NOT_SUPPORTED,
         ];
 
         for code in server_codes {

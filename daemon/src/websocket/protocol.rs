@@ -40,6 +40,8 @@ pub mod error_codes {
     pub const GSTREAMER_ERROR: i32 = -32003;
     /// Pipeline description too long
     pub const DESCRIPTION_TOO_LONG: i32 = -32004;
+    /// Media not supported (missing codec, unsupported format, hardware limitation)
+    pub const MEDIA_NOT_SUPPORTED: i32 = -32005;
 }
 
 /// JSON-RPC 2.0 version string
@@ -149,6 +151,7 @@ impl Response {
             ),
             GpopError::InvalidPipeline(msg) => (error_codes::PIPELINE_CREATION_FAILED, msg.clone()),
             GpopError::StateChangeFailed(msg) => (error_codes::STATE_CHANGE_FAILED, msg.clone()),
+            GpopError::MediaNotSupported(msg) => (error_codes::MEDIA_NOT_SUPPORTED, msg.clone()),
             GpopError::GStreamer(msg) => (error_codes::GSTREAMER_ERROR, msg.clone()),
             _ => (error_codes::INTERNAL_ERROR, err.to_string()),
         };

@@ -84,6 +84,11 @@ pub enum PipelineEvent {
         pipeline_id: String,
         message: String,
     },
+    #[serde(rename = "unsupported")]
+    Unsupported {
+        pipeline_id: String,
+        message: String,
+    },
     #[serde(rename = "eos")]
     Eos { pipeline_id: String },
     #[serde(rename = "pipeline_added")]

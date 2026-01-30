@@ -134,6 +134,18 @@ fn test_pipeline_event_serialize_error() {
 }
 
 #[test]
+fn test_pipeline_event_serialize_unsupported() {
+    let event = PipelineEvent::Unsupported {
+        pipeline_id: "pipeline-0".to_string(),
+        message: "No decoder available for type 'video/x-h265'".to_string(),
+    };
+
+    let json = serde_json::to_string(&event).unwrap();
+    assert!(json.contains("\"event\":\"unsupported\""));
+    assert!(json.contains("\"message\":\"No decoder available"));
+}
+
+#[test]
 fn test_pipeline_event_serialize_eos() {
     let event = PipelineEvent::Eos {
         pipeline_id: "pipeline-0".to_string(),
