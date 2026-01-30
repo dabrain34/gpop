@@ -104,6 +104,7 @@ gchar *gpop_client_set_state (GPOPClient *client, const gchar *pipeline_id, cons
 gchar *gpop_client_snapshot (GPOPClient *client, const gchar *pipeline_id, const gchar *details);
 gchar *gpop_client_get_position (GPOPClient *client, const gchar *pipeline_id);
 gchar *gpop_client_get_version (GPOPClient *client);
+gchar *gpop_client_get_info (GPOPClient *client);
 gchar *gpop_client_get_pipeline_count (GPOPClient *client);
 
 /* Utility functions */

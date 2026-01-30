@@ -108,13 +108,25 @@ process_message (GPOPClient *client, const gchar *text)
   GError *error = NULL;
 
   if (!json_parser_load_from_data (parser, text, -1, &error)) {
+    g_warning ("Failed to parse JSON message: %s", error->message);
     g_error_free (error);
     g_object_unref (parser);
     return;
   }
 
   JsonNode *root_node = json_parser_get_root (parser);
+  if (root_node == NULL) {
+    g_warning ("JSON parser returned NULL root node");
+    g_object_unref (parser);
+    return;
+  }
+
   JsonObject *root = json_node_get_object (root_node);
+  if (root == NULL) {
+    g_warning ("JSON root is not an object");
+    g_object_unref (parser);
+    return;
+  }
 
   if (json_object_has_member (root, "event")) {
     handle_event (client, root);
@@ -163,7 +175,8 @@ on_websocket_error (SoupWebsocketConnection *ws,
 {
   (void) ws;
   (void) user_data;
-  (void) error;
+
+  g_warning ("WebSocket error: %s", error->message);
 }
 
 static void
@@ -523,6 +536,12 @@ gchar *
 gpop_client_get_version (GPOPClient *client)
 {
   return gpop_client_send_request (client, "get_version", NULL);
+}
+
+gchar *
+gpop_client_get_info (GPOPClient *client)
+{
+  return gpop_client_send_request (client, "get_info", NULL);
 }
 
 gchar *
