@@ -1,6 +1,7 @@
 ### Description
 
-**gpop** stands for GstPrinceOfParser and acts as a library.
+**gpop** stands for GstPrinceOfParser and acts as a library
+to run a pipeline manager.
 
 ### Build
 
