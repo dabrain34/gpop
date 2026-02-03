@@ -22,6 +22,9 @@ gst_dep = dependency('gstreamer-1.0', version: gst_req_version,
 
 root_inc = include_directories('.')
 
+# Install git hooks for development
+meson.add_postconf_script('scripts/setup-hooks.sh')
+
 subdir('lib')
 
 if get_option('cclient')
