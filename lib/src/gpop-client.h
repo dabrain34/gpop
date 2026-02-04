@@ -1,7 +1,7 @@
 /*
  * GStreamer Prince of Parser
  *
- * Copyright (C) 2020-2024 Stéphane Cerveau
+ * Copyright (C) 2020-2024 Stéphane Cerveau <scerveau@igalia.com>
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  *

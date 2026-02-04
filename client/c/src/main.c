@@ -1,7 +1,7 @@
 /*
  * GStreamer Prince of Parser - C WebSocket Client
  *
- * Copyright (C) 2020-2024 Stephane Cerveau
+ * Copyright (C) 2020-2024 Stephane Cerveau <scerveau@igalia.com>
  *
  * SPDX-License-Identifier: GPL-3.0-only
  *
