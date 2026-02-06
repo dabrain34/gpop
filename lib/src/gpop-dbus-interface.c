@@ -1,9 +1,9 @@
 /*
  * GStreamer Prince of Parser
  *
- * Copyright (C) 2020 Stéphane Cerveau
+ * Copyright (C) 2020 Stéphane Cerveau <scerveau@gmail.com>
  *
- * SPDX-License-Identifier: LGPL
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -106,6 +106,10 @@ gpop_dbus_interface_dispose (GObject * object)
   }
   iface->connection = NULL;
   g_clear_pointer (&iface->object_path, g_free);
+  g_clear_pointer (&iface->introspection_data, g_dbus_node_info_unref);
+
+  if (G_OBJECT_CLASS (parent_class)->dispose)
+    G_OBJECT_CLASS (parent_class)->dispose (object);
 }
 
 static void

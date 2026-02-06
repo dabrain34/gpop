@@ -1,4 +1,4 @@
-project('gpop', 'c', version : '1.0.0', license : 'LGPL')
+project('gpop', 'c', version : '0.2.0', license : 'GPL')
 
 pkg = import('pkgconfig')
 
@@ -22,5 +22,30 @@ gst_dep = dependency('gstreamer-1.0', version: gst_req_version,
 
 root_inc = include_directories('.')
 
+# Install git hooks for development
+meson.add_postconf_script('scripts/setup-hooks.sh')
+
 subdir('lib')
-subdir('daemon')
+
+if get_option('cclient')
+  subdir('client/c')
+endif
+
+# Rust targets (daemon + client)
+cargo = find_program('cargo', required: true)
+
+custom_target('gpop-daemon',
+  output: 'gpop-daemon',
+  command: [cargo, 'build', '--release', '-p', 'gpop-daemon', '--target-dir', '@OUTDIR@'],
+  console: true,
+  build_by_default: true,
+)
+
+if get_option('client')
+  custom_target('gpop-client',
+    output: 'gpop-client',
+    command: [cargo, 'build', '--release', '-p', 'gpop-client', '--target-dir', '@OUTDIR@'],
+    console: true,
+    build_by_default: true,
+  )
+endif

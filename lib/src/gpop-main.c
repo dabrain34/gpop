@@ -1,9 +1,9 @@
 /*
  * GStreamer Prince of Parser
  *
- * Copyright (C) 2020 Stéphane Cerveau
+ * Copyright (C) 2020 Stéphane Cerveau <scerveau@gmail.com>
  *
- * SPDX-License-Identifier: LGPL
+ * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -145,7 +145,7 @@ done:
     g_bus_unown_name (dbus_id);
   if (app->loop)
     g_main_loop_unref (app->loop);
-  gpop_manage_free (app->manager);
+  gpop_manager_free (app->manager);
   g_strfreev (app->pipeline_desc_array);
 
   g_free (app);

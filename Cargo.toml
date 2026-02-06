@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "daemon",
+    "client/rust",
+]
+resolver = "2"
+default-members = ["daemon"]
