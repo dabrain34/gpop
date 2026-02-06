@@ -1,6 +1,32 @@
 ### Description
 
-**gpop** (GstPrinceOfParser) is a GStreamer pipeline management system with WebSocket and DBus interfaces.
+**gpop** (GstPrinceOfParser) is a GStreamer pipeline management daemon that allows you to create, control, and monitor GStreamer media pipelines remotely via WebSocket or DBus interfaces.
+
+### Why Use gpop?
+
+#### Process Isolation
+Run GStreamer pipelines in a separate process from your main application. If a pipeline crashes due to a buggy codec or driver issue, your application continues running unaffected.
+
+#### Remote Pipeline Control
+Control pipelines running on remote machines over the network. Perfect for:
+- Headless media servers
+- Distributed video processing
+- IoT/embedded devices with limited UI
+
+#### Multiple Pipeline Management
+Create and manage multiple independent pipelines simultaneously:
+- Run several video streams in parallel
+- Mix and match different sources and sinks
+- Monitor and control each pipeline individually
+
+#### Language Agnostic
+Any language that can speak WebSocket and JSON can control gpop:
+- Use the provided Rust or C clients
+- Integrate with Python, JavaScript, Go, or any other language
+- Build custom dashboards or automation scripts
+
+#### Real-time Monitoring
+Receive live events for pipeline state changes, errors, and end-of-stream notifications via WebSocket broadcast.
 
 ### Project Structure
 
